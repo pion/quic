@@ -18,21 +18,23 @@ type Config struct {
 	SkipVerify  bool
 }
 
-var quicConfig = &quic.Config{
-	MaxIncomingStreams:                    1000,
-	MaxIncomingUniStreams:                 -1,              // disable unidirectional streams
-	MaxReceiveStreamFlowControlWindow:     3 * (1 << 20),   // 3 MB
-	MaxReceiveConnectionFlowControlWindow: 4.5 * (1 << 20), // 4.5 MB
-	AcceptCookie: func(clientAddr net.Addr, cookie *quic.Cookie) bool {
-		return true
-	},
-	KeepAlive: true,
+func getDefaultQuicConfig() *quic.Config {
+	return &quic.Config{
+		MaxIncomingStreams:                    1000,
+		MaxIncomingUniStreams:                 -1,              // disable unidirectional streams
+		MaxReceiveStreamFlowControlWindow:     3 * (1 << 20),   // 3 MB
+		MaxReceiveConnectionFlowControlWindow: 4.5 * (1 << 20), // 4.5 MB
+		AcceptCookie: func(clientAddr net.Addr, cookie *quic.Cookie) bool {
+			return true
+		},
+		KeepAlive: true,
+	}
 }
 
 // Client establishes a QUIC session over an existing conn
 func Client(conn net.Conn, config *Config) (*Session, error) {
 	tlscfg := getTLSConfig(config)
-	s, err := quic.Dial(newFakePacketConn(conn), &fakeAddr{}, "localhost:1234", tlscfg, quicConfig)
+	s, err := quic.Dial(newFakePacketConn(conn), &fakeAddr{}, "localhost:1234", tlscfg, getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +44,7 @@ func Client(conn net.Conn, config *Config) (*Session, error) {
 // Dial dials the address over quic
 func Dial(addr string, config *Config) (*Session, error) {
 	tlscfg := getTLSConfig(config)
-	s, err := quic.DialAddr(addr, tlscfg, quicConfig)
+	s, err := quic.DialAddr(addr, tlscfg, getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +54,7 @@ func Dial(addr string, config *Config) (*Session, error) {
 // Server creates a listener for listens for incoming QUIC sessions
 func Server(conn net.Conn, config *Config) (*Listener, error) {
 	tlscfg := getTLSConfig(config)
-	l, err := quic.Listen(newFakePacketConn(conn), tlscfg, quicConfig)
+	l, err := quic.Listen(newFakePacketConn(conn), tlscfg, getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +64,7 @@ func Server(conn net.Conn, config *Config) (*Listener, error) {
 // Listen listens on the address over quic
 func Listen(addr string, config *Config) (*Listener, error) {
 	tlscfg := getTLSConfig(config)
-	l, err := quic.ListenAddr(addr, tlscfg, quicConfig)
+	l, err := quic.ListenAddr(addr, tlscfg, getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
