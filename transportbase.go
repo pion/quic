@@ -8,7 +8,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/pions/webrtc/pkg/quic/internal/wrapper"
+	"github.com/pions/quic/internal/wrapper"
 )
 
 // TransportBase is the base for Transport. Most of the

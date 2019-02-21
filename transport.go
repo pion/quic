@@ -3,7 +3,7 @@
 package quic
 
 import (
-	"github.com/pions/webrtc/pkg/quic/internal/wrapper"
+	"github.com/pions/quic/internal/wrapper"
 )
 
 // Transport is a quic transport focused on client/server use cases.
