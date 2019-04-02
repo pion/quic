@@ -8,7 +8,7 @@ import (
 	"crypto/x509"
 	"net"
 
-	quic "github.com/pions/quic-go"
+	quic "github.com/lucas-clemente/quic-go"
 )
 
 // Config represents the configuration of a Quic session
