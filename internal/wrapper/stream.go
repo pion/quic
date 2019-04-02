@@ -1,7 +1,7 @@
 package wrapper
 
 import (
-	quic "github.com/pions/quic-go"
+	quic "github.com/lucas-clemente/quic-go"
 )
 
 // Stream represents a wrapped quic-go stream

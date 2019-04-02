@@ -1,7 +1,7 @@
 package quic
 
 import (
-	quic "github.com/pions/quic-go"
+	quic "github.com/lucas-clemente/quic-go"
 	"github.com/pions/quic/internal/wrapper"
 )
 
