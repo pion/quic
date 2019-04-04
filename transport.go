@@ -3,7 +3,7 @@
 package quic
 
 import (
-	"github.com/pions/quic/internal/wrapper"
+	"github.com/pion/quic/internal/wrapper"
 )
 
 // Transport is a quic transport focused on client/server use cases.

@@ -1,5 +1,5 @@
 // Package wrapper is a wrapper around lucas-clemente/quic-go to match
-// the net.Conn based interface used troughout pions/webrtc.
+// the net.Conn based interface used troughout pion/webrtc.
 package wrapper
 
 import (

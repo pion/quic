@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pions/transport/test"
+	"github.com/pion/transport/test"
 )
 
 func TestTransport_E2E(t *testing.T) {
