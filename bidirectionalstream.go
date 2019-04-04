@@ -2,7 +2,7 @@ package quic
 
 import (
 	quic "github.com/lucas-clemente/quic-go"
-	"github.com/pions/quic/internal/wrapper"
+	"github.com/pion/quic/internal/wrapper"
 )
 
 // BidirectionalStream represents a bidirectional Quic stream.
