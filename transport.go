@@ -3,6 +3,7 @@
 package quic
 
 import (
+	"github.com/pion/logging"
 	"github.com/pion/quic/internal/wrapper"
 )
 
@@ -13,6 +14,10 @@ type Transport struct {
 
 // NewTransport creates a new Transport
 func NewTransport(url string, config *Config) (*Transport, error) {
+	if config.LoggerFactory == nil {
+		config.LoggerFactory = logging.NewDefaultLoggerFactory()
+	}
+
 	cfg := config.clone()
 	cfg.SkipVerify = true // Using self signed certificates for now
 
@@ -22,10 +27,15 @@ func NewTransport(url string, config *Config) (*Transport, error) {
 	}
 
 	t := &Transport{}
+	t.TransportBase.log = config.LoggerFactory.NewLogger("quic")
 	return t, t.TransportBase.startBase(s)
 }
 
 func newServer(url string, config *Config) (*Transport, error) {
+	if config.LoggerFactory == nil {
+		config.LoggerFactory = logging.NewDefaultLoggerFactory()
+	}
+
 	cfg := config.clone()
 	cfg.SkipVerify = true // Using self signed certificates for now
 
@@ -40,5 +50,6 @@ func newServer(url string, config *Config) (*Transport, error) {
 	}
 
 	t := &Transport{}
+	t.TransportBase.log = config.LoggerFactory.NewLogger("quic")
 	return t, t.TransportBase.startBase(s)
 }
