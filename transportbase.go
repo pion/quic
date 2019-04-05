@@ -4,10 +4,10 @@ import (
 	"crypto"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 
+	"github.com/pion/logging"
 	"github.com/pion/quic/internal/wrapper"
 )
 
@@ -18,13 +18,15 @@ type TransportBase struct {
 	lock                      sync.RWMutex
 	onBidirectionalStreamHdlr func(*BidirectionalStream)
 	session                   *wrapper.Session
+	log                       logging.LeveledLogger
 }
 
 // Config is used to hold the configuration of StartBase
 type Config struct {
-	Client      bool
-	Certificate *x509.Certificate
-	PrivateKey  crypto.PrivateKey
+	Client        bool
+	Certificate   *x509.Certificate
+	PrivateKey    crypto.PrivateKey
+	LoggerFactory logging.LoggerFactory
 }
 
 // StartBase is used to start the TransportBase. Most implementations
@@ -109,7 +111,7 @@ func (b *TransportBase) acceptStreams() {
 	for {
 		s, err := b.session.AcceptStream()
 		if err != nil {
-			fmt.Println("Failed to accept stream:", err)
+			b.log.Errorf("Failed to accept stream: %v", err)
 			// TODO: Kill TransportBase?
 			return
 		}
