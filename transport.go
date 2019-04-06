@@ -32,8 +32,9 @@ func NewTransport(url string, config *Config) (*Transport, error) {
 }
 
 func newServer(url string, config *Config) (*Transport, error) {
-	if config.LoggerFactory == nil {
-		config.LoggerFactory = logging.NewDefaultLoggerFactory()
+	loggerFactory := config.LoggerFactory
+	if loggerFactory == nil {
+		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
 	cfg := config.clone()
@@ -50,6 +51,6 @@ func newServer(url string, config *Config) (*Transport, error) {
 	}
 
 	t := &Transport{}
-	t.TransportBase.log = config.LoggerFactory.NewLogger("quic")
+	t.TransportBase.log = loggerFactory.NewLogger("quic")
 	return t, t.TransportBase.startBase(s)
 }
