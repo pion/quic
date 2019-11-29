@@ -8,7 +8,6 @@
   <a href="https://pion.ly"><img src="https://img.shields.io/badge/pion-webrtc-gray.svg?longCache=true&colorB=brightgreen" alt="Pion quic"></a>
   <!--<a href="https://sourcegraph.com/github.com/pion/webrtc?badge"><img src="https://sourcegraph.com/github.com/pion/webrtc/-/badge.svg" alt="Sourcegraph Widget"></a>-->
   <a href="https://pion.ly/slack"><img src="https://img.shields.io/badge/join-us%20on%20slack-gray.svg?longCache=true&logo=slack&colorB=brightgreen" alt="Slack Widget"></a>
-  <a href="https://waffle.io/pion/webrtc"><img src="https://img.shields.io/badge/pm-waffle-gray.svg?longCache=true&colorB=brightgreen" alt="Waffle board"></a>
   <br>
   <a href="https://travis-ci.org/pion/quic"><img src="https://travis-ci.org/pion/quic.svg?branch=master" alt="Build Status"></a>
   <a href="https://godoc.org/github.com/pion/quic"><img src="https://godoc.org/github.com/pion/quic?status.svg" alt="GoDoc"></a>
