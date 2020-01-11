@@ -45,6 +45,10 @@ test_i386_job: &test_i386_job
   env: CACHE_NAME=test386
   language: bash
   services: docker
+  install:
+      # i386/golang:1.12-alpine doesn't have git.
+    - echo -e "FROM i386/golang:${GO_VERSION}-alpine\nRUN apk add --no-cache git" > Dockerfile
+    - docker build -t go-tester .
   script:
     - |
       docker run \
@@ -55,7 +59,7 @@ test_i386_job: &test_i386_job
         -v $HOME/gopath/pkg/mod:/go/pkg/mod \
         -v $HOME/.cache/go-build:/.cache/go-build \
         -w /go/src/github.com/pion/webrtc \
-        -it i386/golang:${GO_VERSION}-alpine \
+        -it go-tester \
         /usr/local/go/bin/go test -tags quic -v ./...
 
 jobs:
