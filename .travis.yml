@@ -1,5 +1,8 @@
 language: go
 
+addons:
+  chrome: stable
+
 branches:
   only:
   - master
@@ -40,7 +43,7 @@ test_job: &test_job
         -coverpkg=${coverpkgs} -coverprofile=cover.out -covermode=atomic \
         -v -race ./...
   after_success:
-    - travis_retry bash <(curl -s https://codecov.io/bash)
+    - travis_retry bash <(curl -s https://codecov.io/bash) -c -F go
 test_i386_job: &test_i386_job
   env: CACHE_NAME=test386
   language: bash
@@ -61,6 +64,25 @@ test_i386_job: &test_i386_job
         -w /go/src/github.com/pion/webrtc \
         -it go-tester \
         /usr/local/go/bin/go test -tags quic -v ./...
+test_wasm_job: &test_wasm_job
+  env: CACHE_NAME=wasm
+  language: bash
+  install:
+    # Manually download and install Go instead of using gimme.
+    # It looks like gimme Go causes some errors on go-test for Wasm.
+    - curl -sSfL https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz | tar -C ~ -xzf -
+    - export GOROOT=~/go
+    - export PATH=$GOROOT/bin:$PATH
+    - go get github.com/agnivade/wasmbrowsertest
+    - mv $GOPATH/bin/wasmbrowsertest $GOPATH/bin/go_js_wasm_exec
+  script:
+    - coverpkgs=$(go list ./... | paste -s -d ',')
+    - |
+      GOOS=js GOARCH=wasm go test \
+        -coverpkg=${coverpkgs} -coverprofile=cover.out -covermode=atomic \
+        -v .
+  after_success:
+    - travis_retry bash <(curl -s https://codecov.io/bash) -c -F wasm
 
 jobs:
   include:
@@ -78,12 +100,14 @@ jobs:
       go: 1.13
     - <<: *test_i386_job
       name: Test i386 1.12
-      env:
-        - GO_VERSION=1.12
+      env: GO_VERSION=1.12
     - <<: *test_i386_job
       name: Test i386 1.13
-      env:
-        - GO_VERSION=1.13
+      env: GO_VERSION=1.13
+    - <<: *test_wasm_job
+      name: Test WASM 1.13
+      # Requires Go1.13 syscall/js
+      env: GO_VERSION=1.13
 
 notifications:
   email: false
