@@ -1,7 +1,11 @@
+dist: bionic
 language: go
 
 addons:
   chrome: stable
+  apt:
+    packages:
+      - libxcursor1
 
 branches:
   only:
