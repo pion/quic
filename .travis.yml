@@ -41,21 +41,45 @@ test_job: &test_job
         -v -race ./...
   after_success:
     - travis_retry bash <(curl -s https://codecov.io/bash)
+test_i386_job: &test_i386_job
+  env: CACHE_NAME=test386
+  language: bash
+  services: docker
+  script:
+    - |
+      docker run \
+        -u $(id -u):$(id -g) \
+        -e "GO111MODULE=on" \
+        -e "CGO_ENABLED=0" \
+        -v $PWD:/go/src/github.com/pion/webrtc \
+        -v $HOME/gopath/pkg/mod:/go/pkg/mod \
+        -v $HOME/.cache/go-build:/.cache/go-build \
+        -w /go/src/github.com/pion/webrtc \
+        -it i386/golang:${GO_VERSION}-alpine \
+        /usr/local/go/bin/go test -tags quic -v ./...
 
 jobs:
   include:
     - <<: *lint_job
-      name: lint 1.12
+      name: Lint 1.12
       go: 1.12
     - <<: *lint_job
-      name: lint 1.13
+      name: Lint 1.13
       go: 1.13
     - <<: *test_job
-      name: test 1.12
+      name: Test 1.12
       go: 1.12
     - <<: *test_job
-      name: test 1.13
+      name: Test 1.13
       go: 1.13
+    - <<: *test_i386_job
+      name: Test i386 1.12
+      env:
+        - GO_VERSION=1.12
+    - <<: *test_i386_job
+      name: Test i386 1.13
+      env:
+        - GO_VERSION=1.13
 
 notifications:
   email: false
