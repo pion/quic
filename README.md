@@ -43,6 +43,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Michiel De Backker](https://github.com/backkem) - *Original Author*
 * [Max Hawkins](https://github.com/maxhawkins) - *Cleanup RTC prefix*
 * [Hugo Arregui](https://github.com/hugoArregui)
+* [Atsushi Watanabe](https://github.com/at-wat)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
