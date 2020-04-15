@@ -48,7 +48,7 @@ func TestTransport_E2E(t *testing.T) {
 	var tb *Transport
 	go func() {
 		var sErr error
-		tb, sErr = newServer(url, cfgB)
+		tb, sErr = NewServer(url, cfgB)
 		if sErr != nil {
 			srvErr <- sErr
 		}

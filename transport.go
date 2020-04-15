@@ -31,7 +31,8 @@ func NewTransport(url string, config *Config) (*Transport, error) {
 	return t, t.TransportBase.startBase(s)
 }
 
-func newServer(url string, config *Config) (*Transport, error) {
+// NewServer creates a new Transport with listen
+func NewServer(url string, config *Config) (*Transport, error) {
 	loggerFactory := config.LoggerFactory
 	if loggerFactory == nil {
 		loggerFactory = logging.NewDefaultLoggerFactory()
