@@ -3,6 +3,9 @@
 package quic
 
 import (
+	"fmt"
+	"io"
+
 	"github.com/pion/logging"
 	"github.com/pion/quic/internal/wrapper"
 )
@@ -31,7 +34,8 @@ func NewTransport(url string, config *Config) (*Transport, error) {
 	return t, t.TransportBase.startBase(s)
 }
 
-func newServer(url string, config *Config) (*Transport, error) {
+// single accept listen for testing
+func newServer(url string, config *Config) (*Transport, io.Closer, error) {
 	loggerFactory := config.LoggerFactory
 	if loggerFactory == nil {
 		loggerFactory = logging.NewDefaultLoggerFactory()
@@ -42,15 +46,18 @@ func newServer(url string, config *Config) (*Transport, error) {
 
 	l, err := wrapper.Listen(url, cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	s, err := l.Accept()
 	if err != nil {
-		return nil, err
+		if cerr := l.Close(); cerr != nil {
+			err = fmt.Errorf("failed to close listener (%s) after accept failed: %w", cerr, err)
+		}
+		return nil, nil, err
 	}
 
 	t := &Transport{}
 	t.TransportBase.log = loggerFactory.NewLogger("quic")
-	return t, t.TransportBase.startBase(s)
+	return t, l, t.TransportBase.startBase(s)
 }

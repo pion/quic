@@ -17,7 +17,7 @@ func newFakePacketConn(conn net.Conn) *fakePacketConn {
 
 func (c *fakePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	n, err := c.c.Read(p)
-	return n, nil, err
+	return n, c.c.RemoteAddr(), err
 }
 
 func (c *fakePacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
@@ -30,7 +30,7 @@ func (c *fakePacketConn) Close() error {
 }
 
 func (c *fakePacketConn) LocalAddr() net.Addr {
-	return &fakeAddr{}
+	return c.c.LocalAddr()
 }
 
 func (c *fakePacketConn) SetDeadline(t time.Time) error {
@@ -43,16 +43,4 @@ func (c *fakePacketConn) SetReadDeadline(t time.Time) error {
 
 func (c *fakePacketConn) SetWriteDeadline(t time.Time) error {
 	return c.c.SetWriteDeadline(t)
-}
-
-type fakeAddr struct {
-	ID string
-}
-
-func (a *fakeAddr) Network() string {
-	return "WebRTC"
-}
-
-func (a *fakeAddr) String() string {
-	return "fakeAddr"
 }

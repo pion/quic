@@ -44,6 +44,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Max Hawkins](https://github.com/maxhawkins) - *Cleanup RTC prefix*
 * [Hugo Arregui](https://github.com/hugoArregui)
 * [Atsushi Watanabe](https://github.com/at-wat)
+* [Henry](https://github.com/cryptix)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

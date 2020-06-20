@@ -112,7 +112,12 @@ func (b *TransportBase) acceptStreams() {
 		s, err := b.session.AcceptStream()
 		if err != nil {
 			b.log.Errorf("Failed to accept stream: %v", err)
-			// TODO: Kill TransportBase?
+			stopErr := b.Stop(TransportStopInfo{
+				Reason: err.Error(),
+			})
+			if stopErr != nil {
+				b.log.Errorf("Failed to stop transport: %v", stopErr)
+			}
 			return
 		}
 

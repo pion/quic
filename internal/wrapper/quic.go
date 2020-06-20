@@ -3,9 +3,12 @@
 package wrapper
 
 import (
+	"context"
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
+	"io"
 	"net"
 
 	quic "github.com/lucas-clemente/quic-go"
@@ -24,17 +27,18 @@ func getDefaultQuicConfig() *quic.Config {
 		MaxIncomingUniStreams:                 -1,              // disable unidirectional streams
 		MaxReceiveStreamFlowControlWindow:     3 * (1 << 20),   // 3 MB
 		MaxReceiveConnectionFlowControlWindow: 4.5 * (1 << 20), // 4.5 MB
-		AcceptCookie: func(clientAddr net.Addr, cookie *quic.Cookie) bool {
-			return true
-		},
-		KeepAlive: true,
+		KeepAlive:                             true,
 	}
 }
 
 // Client establishes a QUIC session over an existing conn
 func Client(conn net.Conn, config *Config) (*Session, error) {
 	tlscfg := getTLSConfig(config)
-	s, err := quic.Dial(newFakePacketConn(conn), &fakeAddr{}, "localhost:1234", tlscfg, getDefaultQuicConfig())
+	rAddr := conn.RemoteAddr()
+	if rAddr == nil {
+		return nil, fmt.Errorf("quic: creating client without remote address")
+	}
+	s, err := quic.Dial(newFakePacketConn(conn), rAddr, rAddr.String(), tlscfg, getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -74,12 +78,14 @@ func Listen(addr string, config *Config) (*Listener, error) {
 func getTLSConfig(config *Config) *tls.Config {
 	/* #nosec G402 */
 	return &tls.Config{
+		MinVersion:         tls.VersionTLS13,
 		InsecureSkipVerify: config.SkipVerify,
 		ClientAuth:         tls.RequireAnyClientCert,
 		Certificates: []tls.Certificate{{
 			Certificate: [][]byte{config.Certificate.Raw},
 			PrivateKey:  config.PrivateKey,
 		}},
+		NextProtos: []string{"pion-quic"},
 	}
 }
 
@@ -99,7 +105,7 @@ func (s *Session) OpenStream() (*Stream, error) {
 
 // AcceptStream accepts an incoming stream
 func (s *Session) AcceptStream() (*Stream, error) {
-	str, err := s.s.AcceptStream()
+	str, err := s.s.AcceptStream(context.TODO())
 	if err != nil {
 		return nil, err
 	}
@@ -113,11 +119,15 @@ func (s *Session) GetRemoteCertificates() []*x509.Certificate {
 
 // Close the connection
 func (s *Session) Close() error {
-	return s.s.Close()
+	return s.CloseWithError(0, io.EOF)
 }
 
 // CloseWithError closes the connection with an error.
 // The error must not be nil.
 func (s *Session) CloseWithError(code uint16, err error) error {
-	return s.s.CloseWithError(quic.ErrorCode(code), err)
+	var e = "nil"
+	if err != nil {
+		e = err.Error()
+	}
+	return s.s.CloseWithError(quic.ErrorCode(code), e)
 }
