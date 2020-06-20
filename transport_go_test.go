@@ -54,10 +54,16 @@ func TestTransport_E2E(t *testing.T) {
 		}
 
 		tb.OnBidirectionalStream(func(stream *BidirectionalStream) {
-			go readLoop(stream) // Read to pull incoming messages
+			serverReceived := make(chan []byte)
 
+			go readLoop(stream, serverReceived) // Read to pull incoming messages
+
+			bts := <-serverReceived
+
+			t.Log("server rx", string(bts))
 			close(awaitSetup)
 		})
+
 		close(srvErr)
 	}()
 
@@ -71,7 +77,8 @@ func TestTransport_E2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	go readLoop(stream) // Read to pull incoming messages
+	clientReceived := make(chan []byte, 1)
+	go readLoop(stream, clientReceived) // Read to pull incoming messages
 
 	// Write to open stream
 	data := StreamWriteParameters{
@@ -97,15 +104,27 @@ func TestTransport_E2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	select {
+	case <-time.After(5 * time.Second):
+		t.Error("close timeout..")
+	case buf, more := <-clientReceived:
+		if more {
+			t.Errorf("read message from server: %x",buf)
+			return
+		}
+	}
 }
 
-func readLoop(s *BidirectionalStream) {
+func readLoop(s *BidirectionalStream, ch chan<- []byte) {
 	for {
 		buffer := make([]byte, 15)
 		_, err := s.ReadInto(buffer)
 		if err != nil {
+			close(ch)
 			return
 		}
+		ch <- buffer
 	}
 }
 
