@@ -7,6 +7,7 @@ import (
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net"
 
 	quic "github.com/lucas-clemente/quic-go"
@@ -32,7 +33,11 @@ func getDefaultQuicConfig() *quic.Config {
 // Client establishes a QUIC session over an existing conn
 func Client(conn net.Conn, config *Config) (*Session, error) {
 	tlscfg := getTLSConfig(config)
-	s, err := quic.Dial(newFakePacketConn(conn), &fakeAddr{}, "localhost:1234", tlscfg, getDefaultQuicConfig())
+	rAddr := conn.RemoteAddr()
+	if rAddr == nil {
+		return nil, fmt.Errorf("creating client to nowhere!")
+	}
+	s, err := quic.Dial(newFakePacketConn(conn), rAddr, rAddr.String(), tlscfg, getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}

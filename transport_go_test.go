@@ -110,7 +110,7 @@ func TestTransport_E2E(t *testing.T) {
 		t.Error("close timeout..")
 	case buf, more := <-clientReceived:
 		if more {
-			t.Errorf("read message from server: %x",buf)
+			t.Errorf("read message from server: %x", buf)
 			return
 		}
 	}
