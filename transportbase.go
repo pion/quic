@@ -4,7 +4,9 @@ import (
 	"crypto"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/pion/logging"
@@ -111,7 +113,7 @@ func (b *TransportBase) acceptStreams() {
 	for {
 		s, err := b.session.AcceptStream()
 		if err != nil {
-			b.log.Errorf("Failed to accept stream: %v", err)
+			fmt.Fprintf(os.Stderr, "Failed to accept stream: %T %v\n", err, err)
 			// TODO: Kill TransportBase?
 			return
 		}
