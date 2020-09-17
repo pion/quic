@@ -6,7 +6,6 @@ import (
 )
 
 // BidirectionalStream represents a bidirectional Quic stream.
-// TODO: Split to QuicWritableStream and QuicReadableStream.
 type BidirectionalStream struct {
 	s *wrapper.Stream
 }
