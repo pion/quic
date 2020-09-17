@@ -143,7 +143,7 @@ func (b *TransportBase) Stop(stopInfo TransportStopInfo) error {
 
 	if stopInfo.ErrorCode > 0 ||
 		len(stopInfo.Reason) > 0 {
-		return b.session.CloseWithError(stopInfo.ErrorCode, errors.New(stopInfo.Reason))
+		return b.session.CloseWithError(stopInfo.ErrorCode, errors.New(stopInfo.Reason)) //nolint:goerr113
 	}
 
 	return b.session.Close()

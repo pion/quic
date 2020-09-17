@@ -154,7 +154,7 @@ func TestTransport_E2E(t *testing.T) {
 }
 
 func readLoop(t *testing.T, s *BidirectionalStream, buf io.Writer, done chan<- struct{}) {
-	var bufSz = 1024
+	bufSz := 1024
 	buffer := make([]byte, bufSz)
 	for {
 		res, err := s.ReadInto(buffer)
