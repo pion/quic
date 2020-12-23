@@ -4,11 +4,12 @@ import (
 	"errors"
 	"io"
 	"net"
+	"time"
 
 	quic "github.com/lucas-clemente/quic-go"
 )
 
-// Stream represents a wrapped quic-go stream
+// Stream represents a wrapped quic-go Stream
 type Stream struct {
 	s quic.Stream
 }
@@ -63,6 +64,11 @@ func (s *Stream) StreamID() uint64 {
 // the connection. Any calls to Read and Write will be unblocked and return an error.
 func (s *Stream) Close() error {
 	return s.s.Close()
+}
+
+// SetDeadline sets read and write deadlines associated with the stream. A zero value for t means Read and Write will not timeout.
+func (s *Stream) SetDeadline(t time.Time) error {
+	return s.s.SetDeadline(t)
 }
 
 // Detach returns the underlying quic-go Stream

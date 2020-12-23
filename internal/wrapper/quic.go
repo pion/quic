@@ -24,7 +24,7 @@ type Config struct {
 func getDefaultQuicConfig() *quic.Config {
 	return &quic.Config{
 		MaxIncomingStreams:                    1000,
-		MaxIncomingUniStreams:                 -1,              // disable unidirectional streams
+		MaxIncomingUniStreams:                 1000,
 		MaxReceiveStreamFlowControlWindow:     3 * (1 << 20),   // 3 MB
 		MaxReceiveConnectionFlowControlWindow: 4.5 * (1 << 20), // 4.5 MB
 		KeepAlive:                             true,
@@ -103,6 +103,15 @@ func (s *Session) OpenStream() (*Stream, error) {
 	return &Stream{s: str}, nil
 }
 
+// OpenUniStream opens and returns a new WritableStream
+func (s *Session) OpenUniStream() (*WritableStream, error) {
+	str, err := s.s.OpenUniStream()
+	if err != nil {
+		return nil, err
+	}
+	return &WritableStream{s: str}, nil
+}
+
 // AcceptStream accepts an incoming stream
 func (s *Session) AcceptStream() (*Stream, error) {
 	str, err := s.s.AcceptStream(context.TODO())
@@ -110,6 +119,15 @@ func (s *Session) AcceptStream() (*Stream, error) {
 		return nil, err
 	}
 	return &Stream{s: str}, nil
+}
+
+// AcceptUniStream accepts an incoming unidirectional stream and returns a ReadableStream
+func (s *Session) AcceptUniStream() (*ReadableStream, error) {
+	str, err := s.s.AcceptUniStream(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+	return &ReadableStream{s: str}, nil
 }
 
 // GetRemoteCertificates returns the certificate chain presented by remote peer.

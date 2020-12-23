@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,18 +48,20 @@ func TestTransport_E2E(t *testing.T) {
 	cfgB := &Config{Certificate: cert, PrivateKey: key}
 
 	srvErr := make(chan error)
-	awaitSetup := make(chan struct{})
 
 	var tb *Transport
 	var lisClose io.Closer
 
 	var (
-		clientRx bytes.Buffer
 		clientTx bytes.Buffer // control buffer for comparison
-		serverRx bytes.Buffer
 
-		clientDone = make(chan struct{})
-		serverDone = make(chan struct{})
+		clientBidiRx bytes.Buffer // receive buffer of bidirectional stream for client
+		serverBidiRx bytes.Buffer // receive buffer of bidirectional stream for server
+
+		serverUnidiRx bytes.Buffer // receive buffer of unidirectional stream for server
+
+		clientDone sync.WaitGroup
+		serverDone sync.WaitGroup
 	)
 
 	go func() { // server accept and read spawn
@@ -73,9 +76,12 @@ func TestTransport_E2E(t *testing.T) {
 		}
 
 		tb.OnBidirectionalStream(func(stream *BidirectionalStream) {
-			go readLoop(t, stream, &serverRx, serverDone) // Read to pull incoming messages
-
-			close(awaitSetup)
+			serverDone.Add(1)
+			go readBidiLoop(t, stream, &serverBidiRx, &serverDone) // Read to pull incoming messages
+		})
+		tb.OnUnidirectionalStream(func(stream *ReadableStream) {
+			serverDone.Add(1)
+			go readUnidiLoop(t, stream, &serverUnidiRx, &serverDone)
 		})
 	}()
 
@@ -85,18 +91,24 @@ func TestTransport_E2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stream, err := ta.CreateBidirectionalStream()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	err = <-srvErr
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	stream, err := ta.CreateBidirectionalStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writablestream, err := ta.CreateUnidirectionalStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Read to pull incoming messages, should stay empty
-	go readLoop(t, stream, &clientRx, clientDone)
+	clientDone.Add(1)
+	go readBidiLoop(t, stream, &clientBidiRx, &clientDone)
 
 	count := 512  // how many patterns to send
 	repeat := 128 // how often to repeat the testData pattern
@@ -118,25 +130,38 @@ func TestTransport_E2E(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		err = writablestream.Write(data)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	<-serverDone
+	serverDone.Wait()
 
 	wantBytes := count * (4*repeat + 2)
 	if n := clientTx.Len(); n != wantBytes {
 		t.Errorf("expected %d got %d bytes in sent buffer", wantBytes, n)
 	}
-	if n := serverRx.Len(); n != wantBytes {
-		t.Errorf("expected %d got %d bytes in receive buffer", wantBytes, n)
+	if n := serverBidiRx.Len(); n != wantBytes {
+		t.Errorf("expected %d got %d bytes in receive buffer of bidirectional stream", wantBytes, n)
 	}
-	if nTx, nRx := clientTx.Len(), serverRx.Len(); nTx != nRx {
+	if n := serverUnidiRx.Len(); n != wantBytes {
+		t.Errorf("expected %d got %d bytes in receive buffer of unidirectional stream", wantBytes, n)
+	}
+	if nTx, nRx := clientTx.Len(), serverBidiRx.Len(); nTx != nRx {
 		diff := nTx - nRx
-		t.Errorf("tx(%d) and rx(%d) buffers not equal (diff: %d)", nTx, nRx, diff)
-		assert.Equal(t, clientTx.Bytes(), serverRx.Bytes())
+		t.Errorf("tx(%d) and rx(%d) buffers not equal (diff: %d) in bidirectional stream", nTx, nRx, diff)
+		assert.Equal(t, clientTx.Bytes(), serverBidiRx.Bytes())
+	}
+	if nTx, nRx := clientTx.Len(), serverUnidiRx.Len(); nTx != nRx {
+		diff := nTx - nRx
+		t.Errorf("tx(%d) and rx(%d) buffers not equal (diff: %d) in unidirectional stream", nTx, nRx, diff)
+		assert.Equal(t, clientTx.Bytes(), serverUnidiRx.Bytes())
 	}
 
-	if clientRx.Len() != 0 {
-		t.Errorf("client received data although nothing was sent")
+	if clientBidiRx.Len() != 0 {
+		t.Errorf("client received data from bidirectional stream although nothing was sent")
 	}
 
 	err = ta.Stop(TransportStopInfo{})
@@ -149,11 +174,12 @@ func TestTransport_E2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	<-clientDone
+	clientDone.Wait()
 	assert.NoError(t, lisClose.Close())
 }
 
-func readLoop(t *testing.T, s *BidirectionalStream, buf io.Writer, done chan<- struct{}) {
+func readBidiLoop(t *testing.T, s *BidirectionalStream, buf io.Writer, done *sync.WaitGroup) {
+	defer done.Done()
 	bufSz := 1024
 	buffer := make([]byte, bufSz)
 	for {
@@ -161,7 +187,21 @@ func readLoop(t *testing.T, s *BidirectionalStream, buf io.Writer, done chan<- s
 		_, werr := buf.Write(buffer[:res.Amount])
 		assert.NoError(t, werr, "buffer.Write never failes(?)")
 		if err != nil || res.Finished {
-			close(done)
+			return
+		}
+		buffer = buffer[:bufSz]
+	}
+}
+
+func readUnidiLoop(t *testing.T, s *ReadableStream, buf io.Writer, done *sync.WaitGroup) {
+	defer done.Done()
+	bufSz := 1024
+	buffer := make([]byte, bufSz)
+	for {
+		res, err := s.ReadInto(buffer)
+		_, werr := buf.Write(buffer[:res.Amount])
+		assert.NoError(t, werr, "buffer.Write never failes(?)")
+		if err != nil || res.Finished {
 			return
 		}
 		buffer = buffer[:bufSz]
