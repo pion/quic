@@ -15,10 +15,11 @@ import (
 // functionality of a Transport is in the base class to allow for
 // other subclasses (such as a p2p variant) to share the same interface.
 type TransportBase struct {
-	lock                      sync.RWMutex
-	onBidirectionalStreamHdlr func(*BidirectionalStream)
-	session                   *wrapper.Session
-	log                       logging.LeveledLogger
+	lock                       sync.RWMutex
+	onBidirectionalStreamHdlr  func(*BidirectionalStream)
+	onUnidirectionalStreamHdlr func(*ReadableStream)
+	session                    *wrapper.Session
+	log                        logging.LeveledLogger
 }
 
 // Config is used to hold the configuration of StartBase
@@ -68,6 +69,7 @@ func (b *TransportBase) startBase(s *wrapper.Session) error {
 	b.session = s
 
 	go b.acceptStreams()
+	go b.acceptUniStreams()
 
 	return nil
 }
@@ -91,6 +93,18 @@ func (b *TransportBase) CreateBidirectionalStream() (*BidirectionalStream, error
 	}, nil
 }
 
+// CreateUnidirectionalStream creates an QuicWritableStream object
+func (b *TransportBase) CreateUnidirectionalStream() (*WritableStream, error) {
+	s, err := b.session.OpenUniStream()
+	if err != nil {
+		return nil, err
+	}
+
+	return &WritableStream{
+		s: s,
+	}, nil
+}
+
 // OnBidirectionalStream allows setting an event handler for that is fired
 // when data is received from a BidirectionalStream for the first time.
 func (b *TransportBase) OnBidirectionalStream(f func(*BidirectionalStream)) {
@@ -99,9 +113,26 @@ func (b *TransportBase) OnBidirectionalStream(f func(*BidirectionalStream)) {
 	b.onBidirectionalStreamHdlr = f
 }
 
+// OnUnidirectionalStream allows setting an event handler for that is fired
+// when data is received from a UnidirectionalStream for the first time.
+func (b *TransportBase) OnUnidirectionalStream(f func(*ReadableStream)) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	b.onUnidirectionalStreamHdlr = f
+}
+
 func (b *TransportBase) onBidirectionalStream(s *BidirectionalStream) {
 	b.lock.Lock()
 	f := b.onBidirectionalStreamHdlr
+	b.lock.Unlock()
+	if f != nil {
+		go f(s)
+	}
+}
+
+func (b *TransportBase) onUnidirectionalStream(s *ReadableStream) {
+	b.lock.Lock()
+	f := b.onUnidirectionalStreamHdlr
 	b.lock.Unlock()
 	if f != nil {
 		go f(s)
@@ -129,6 +160,25 @@ func (b *TransportBase) acceptStreams() {
 
 		stream := &BidirectionalStream{s: s}
 		b.onBidirectionalStream(stream)
+	}
+}
+
+func (b *TransportBase) acceptUniStreams() {
+	for {
+		s, err := b.session.AcceptUniStream()
+		if err != nil {
+			b.log.Errorf("Failed to accept stream: %v", err)
+			stopErr := b.Stop(TransportStopInfo{
+				Reason: err.Error(),
+			})
+			if stopErr != nil {
+				b.log.Errorf("Failed to stop transport: %v", stopErr)
+			}
+			return
+		}
+
+		stream := &ReadableStream{s: s}
+		b.onUnidirectionalStream(stream)
 	}
 }
 
