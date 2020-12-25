@@ -10,8 +10,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 
-	quic "github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go"
 )
 
 // Config represents the configuration of a Quic session
@@ -116,6 +117,9 @@ func (s *Session) OpenUniStream() (*WritableStream, error) {
 func (s *Session) AcceptStream() (*Stream, error) {
 	str, err := s.s.AcceptStream(context.TODO())
 	if err != nil {
+		if strings.HasPrefix(err.Error(), "Application error 0x0") {
+			return nil, nil // Errorcode == 0 implies session is closed without error
+		}
 		return nil, err
 	}
 	return &Stream{s: str}, nil
@@ -125,6 +129,9 @@ func (s *Session) AcceptStream() (*Stream, error) {
 func (s *Session) AcceptUniStream() (*ReadableStream, error) {
 	str, err := s.s.AcceptUniStream(context.TODO())
 	if err != nil {
+		if strings.HasPrefix(err.Error(), "Application error 0x0") {
+			return nil, nil // Errorcode == 0 implies session is closed without error
+		}
 		return nil, err
 	}
 	return &ReadableStream{s: str}, nil

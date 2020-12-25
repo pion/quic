@@ -157,9 +157,12 @@ func (b *TransportBase) acceptStreams() {
 			}
 			return
 		}
-
-		stream := &BidirectionalStream{s: s}
-		b.onBidirectionalStream(stream)
+		if s != nil {
+			stream := &BidirectionalStream{s: s}
+			b.onBidirectionalStream(stream)
+		} else {
+			return
+		}
 	}
 }
 
@@ -176,9 +179,12 @@ func (b *TransportBase) acceptUniStreams() {
 			}
 			return
 		}
-
-		stream := &ReadableStream{s: s}
-		b.onUnidirectionalStream(stream)
+		if s != nil {
+			stream := &ReadableStream{s: s}
+			b.onUnidirectionalStream(stream)
+		} else {
+			return
+		}
 	}
 }
 
