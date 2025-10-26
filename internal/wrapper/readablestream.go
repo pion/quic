@@ -9,7 +9,7 @@ import (
 	quic "github.com/quic-go/quic-go"
 )
 
-// ReadableStream represents a wrapped quic-go ReceiveStream
+// ReadableStream represents a wrapped quic-go ReceiveStream.
 type ReadableStream struct {
 	s *quic.ReceiveStream
 }
@@ -19,26 +19,26 @@ func (s *ReadableStream) Read(p []byte) (int, error) {
 	return s.s.Read(p)
 }
 
-// ReadQuic reads a frame and determines if it is the final frame
+// ReadQuic reads a frame and determines if it is the final frame.
 func (s *ReadableStream) ReadQuic(p []byte) (int, bool, error) {
 	n, err := s.s.Read(p)
 	fin := false
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			fin = true
+
+	if errors.Is(err, io.EOF) {
+		fin = true
+	} else if err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) {
+			fin = !ne.Timeout()
 		} else {
-			if ne, ok := err.(net.Error); ok {
-				fin = !ne.Timeout()
-			} else {
-				// which error isn't fin=true but timeout?
-				fin = true
-			}
+			fin = true
 		}
 	}
+
 	return n, fin, err
 }
 
-// StreamID returns the ID of the QuicStream
+// StreamID returns the ID of the QuicStream.
 func (s *ReadableStream) StreamID() int64 {
 	return int64(s.s.StreamID())
 }
@@ -48,7 +48,7 @@ func (s *ReadableStream) SetReadDeadline(t time.Time) error {
 	return s.s.SetReadDeadline(t)
 }
 
-// Detach returns the underlying quic-go ReveiveStream
+// Detach returns the underlying quic-go ReveiveStream.
 func (s *ReadableStream) Detach() *quic.ReceiveStream {
 	return s.s
 }

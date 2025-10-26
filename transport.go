@@ -16,7 +16,7 @@ type Transport struct {
 	TransportBase
 }
 
-// NewTransport creates a new Transport
+// NewTransport creates a new Transport.
 func NewTransport(url string, config *Config) (*Transport, error) {
 	if config.LoggerFactory == nil {
 		config.LoggerFactory = logging.NewDefaultLoggerFactory()
@@ -32,10 +32,11 @@ func NewTransport(url string, config *Config) (*Transport, error) {
 
 	t := &Transport{}
 	t.TransportBase.log = config.LoggerFactory.NewLogger("quic")
+
 	return t, t.TransportBase.startBase(s)
 }
 
-// single accept listen for testing
+// single accept listen for testing.
 func newServer(url string, config *Config) (*Transport, io.Closer, error) {
 	loggerFactory := config.LoggerFactory
 	if loggerFactory == nil {
@@ -45,20 +46,22 @@ func newServer(url string, config *Config) (*Transport, io.Closer, error) {
 	cfg := config.clone()
 	cfg.SkipVerify = true // Using self signed certificates for now
 
-	l, err := wrapper.Listen(url, cfg)
+	list, err := wrapper.Listen(url, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	s, err := l.Accept()
+	s, err := list.Accept()
 	if err != nil {
-		if cerr := l.Close(); cerr != nil {
-			err = fmt.Errorf("failed to close listener (%s) after accept failed: %w", cerr, err)
+		if cerr := list.Close(); cerr != nil {
+			err = fmt.Errorf("failed to close listener (%s) after accept failed: %w", cerr.Error(), err)
 		}
+
 		return nil, nil, err
 	}
 
 	t := &Transport{}
 	t.TransportBase.log = loggerFactory.NewLogger("quic")
-	return t, l, t.TransportBase.startBase(s)
+
+	return t, list, t.TransportBase.startBase(s)
 }

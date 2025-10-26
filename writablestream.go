@@ -7,7 +7,7 @@ import (
 	quic "github.com/quic-go/quic-go"
 )
 
-// WritableStream represents a quic SendStream
+// WritableStream represents a quic SendStream.
 type WritableStream struct {
 	s *wrapper.WritableStream
 }
@@ -15,10 +15,11 @@ type WritableStream struct {
 // Write writes data to the stream.
 func (s *WritableStream) Write(data StreamWriteParameters) error {
 	_, err := s.s.WriteQuic(data.Data, data.Finished)
+
 	return err
 }
 
-// StreamID returns the ID of the WritableStream
+// StreamID returns the ID of the WritableStream.
 func (s *WritableStream) StreamID() StreamID {
 	return StreamID(s.s.StreamID())
 }
@@ -28,7 +29,7 @@ func (s *WritableStream) SetWriteDeadline(t time.Time) error {
 	return s.s.SetWriteDeadline(t)
 }
 
-// Detach detaches the underlying quic-go SendStream
+// Detach detaches the underlying quic-go SendStream.
 func (s *WritableStream) Detach() *quic.SendStream {
 	return s.s.Detach()
 }

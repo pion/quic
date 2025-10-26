@@ -7,9 +7,10 @@ import (
 	quic "github.com/quic-go/quic-go"
 )
 
+// StreamID is the ID of a quic stream.
 type StreamID int64
 
-// ReadableStream represents a unidirectional quic ReceiveStream
+// ReadableStream represents a unidirectional quic ReceiveStream.
 type ReadableStream struct {
 	s *wrapper.ReadableStream
 }
@@ -17,13 +18,14 @@ type ReadableStream struct {
 // ReadInto reads from the ReadableStream into the buffer.
 func (s *ReadableStream) ReadInto(data []byte) (StreamReadResult, error) {
 	n, fin, err := s.s.ReadQuic(data)
+
 	return StreamReadResult{
 		Amount:   n,
 		Finished: fin,
 	}, err
 }
 
-// StreamID returns the ID of the ReadableStream
+// StreamID returns the ID of the ReadableStream.
 func (s *ReadableStream) StreamID() StreamID {
 	return StreamID(s.s.StreamID())
 }
@@ -33,7 +35,7 @@ func (s *ReadableStream) SetReadDeadline(t time.Time) error {
 	return s.s.SetReadDeadline(t)
 }
 
-// Detach detaches and returns the underlying quic-go ReceiveStream
+// Detach detaches and returns the underlying quic-go ReceiveStream.
 func (s *ReadableStream) Detach() *quic.ReceiveStream {
 	return s.s.Detach()
 }

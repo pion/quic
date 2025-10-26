@@ -1,3 +1,4 @@
+//go:build !js
 // +build !js
 
 package quic
@@ -34,16 +35,12 @@ func TestTransport_E2E(t *testing.T) {
 	url := "localhost:50000"
 
 	cert, key, err := GenerateSelfSigned()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	cfgA := &Config{Certificate: cert, PrivateKey: key}
 
 	cert, key, err = GenerateSelfSigned()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	cfgB := &Config{Certificate: cert, PrivateKey: key}
 
@@ -72,6 +69,7 @@ func TestTransport_E2E(t *testing.T) {
 		if sErr != nil {
 			t.Log("newServer err:", err)
 			srvErr <- sErr
+
 			return
 		}
 
@@ -87,24 +85,16 @@ func TestTransport_E2E(t *testing.T) {
 
 	// client dial and send/write
 	ta, err := NewTransport(url, cfgA)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	err = <-srvErr
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	stream, err := ta.CreateBidirectionalStream()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	writablestream, err := ta.CreateUnidirectionalStream()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	// Read to pull incoming messages, should stay empty
 	clientDone.Add(1)
@@ -117,68 +107,45 @@ func TestTransport_E2E(t *testing.T) {
 	var buf [2]byte
 	for i := 0; i < count; i++ {
 		testData := bytes.Repeat([]byte(fmt.Sprintf("%04d", i)), repeat)
-		binary.BigEndian.PutUint16(buf[:], uint16(i))
-		msg := append(testData, buf[0], buf[1])
+		binary.BigEndian.PutUint16(buf[:], uint16(i)) //nolint:gosec
+		testData = append(testData, buf[0], buf[1])
 
-		_, _ = clientTx.Write(msg) // writing to a buffer never fails (hi golint)
+		_, _ = clientTx.Write(testData) // writing to a buffer never fails (hi golint)
 
-		data := StreamWriteParameters{Data: msg}
+		data := StreamWriteParameters{Data: testData}
 		if i == count-1 {
 			data.Finished = true
 		}
 		err = stream.Write(data)
-		if err != nil {
-			t.Fatal(err)
-		}
+		assert.NoError(t, err)
 
 		err = writablestream.Write(data)
-		if err != nil {
-			t.Fatal(err)
-		}
+		assert.NoError(t, err)
 	}
 
 	serverDone.Wait()
 
 	wantBytes := count * (4*repeat + 2)
-	if n := clientTx.Len(); n != wantBytes {
-		t.Errorf("expected %d got %d bytes in sent buffer", wantBytes, n)
-	}
-	if n := serverBidiRx.Len(); n != wantBytes {
-		t.Errorf("expected %d got %d bytes in receive buffer of bidirectional stream", wantBytes, n)
-	}
-	if n := serverUnidiRx.Len(); n != wantBytes {
-		t.Errorf("expected %d got %d bytes in receive buffer of unidirectional stream", wantBytes, n)
-	}
-	if nTx, nRx := clientTx.Len(), serverBidiRx.Len(); nTx != nRx {
-		diff := nTx - nRx
-		t.Errorf("tx(%d) and rx(%d) buffers not equal (diff: %d) in bidirectional stream", nTx, nRx, diff)
-		assert.Equal(t, clientTx.Bytes(), serverBidiRx.Bytes())
-	}
-	if nTx, nRx := clientTx.Len(), serverUnidiRx.Len(); nTx != nRx {
-		diff := nTx - nRx
-		t.Errorf("tx(%d) and rx(%d) buffers not equal (diff: %d) in unidirectional stream", nTx, nRx, diff)
-		assert.Equal(t, clientTx.Bytes(), serverUnidiRx.Bytes())
-	}
+	assert.Equal(t, wantBytes, clientTx.Len())
+	assert.Equal(t, wantBytes, serverBidiRx.Len())
+	assert.Equal(t, wantBytes, serverUnidiRx.Len())
+	assert.Equal(t, clientTx.Bytes(), serverBidiRx.Bytes())
+	assert.Equal(t, clientTx.Bytes(), serverUnidiRx.Bytes())
 
-	if clientBidiRx.Len() != 0 {
-		t.Errorf("client received data from bidirectional stream although nothing was sent")
-	}
+	assert.Equal(t, 0, clientBidiRx.Len())
 
 	err = ta.Stop(TransportStopInfo{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	err = tb.Stop(TransportStopInfo{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	clientDone.Wait()
 	assert.NoError(t, lisClose.Close())
 }
 
 func readBidiLoop(t *testing.T, s *BidirectionalStream, buf io.Writer, done *sync.WaitGroup) {
+	t.Helper()
 	defer done.Done()
 	bufSz := 1024
 	buffer := make([]byte, bufSz)
@@ -194,6 +161,7 @@ func readBidiLoop(t *testing.T, s *BidirectionalStream, buf io.Writer, done *syn
 }
 
 func readUnidiLoop(t *testing.T, s *ReadableStream, buf io.Writer, done *sync.WaitGroup) {
+	t.Helper()
 	defer done.Done()
 	bufSz := 1024
 	buffer := make([]byte, bufSz)
@@ -208,7 +176,7 @@ func readUnidiLoop(t *testing.T, s *ReadableStream, buf io.Writer, done *sync.Wa
 	}
 }
 
-// GenerateSelfSigned creates a self-signed certificate
+// GenerateSelfSigned creates a self-signed certificate.
 func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

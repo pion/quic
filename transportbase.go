@@ -23,7 +23,7 @@ type TransportBase struct {
 	log                        logging.LeveledLogger
 }
 
-// Config is used to hold the configuration of StartBase
+// Config is used to hold the configuration of StartBase.
 type Config struct {
 	Client        bool
 	Certificate   *x509.Certificate
@@ -44,11 +44,11 @@ func (b *TransportBase) StartBase(conn net.Conn, config *Config) error {
 	cfg := config.clone()
 	cfg.SkipVerify = true // Using self signed certificates; WebRTC will check the fingerprint
 
-	var s *wrapper.Conn
+	var con *wrapper.Conn
 	var err error
 	if config.Client {
 		// Assumes the peer offered to be passive and we accepted.
-		s, err = wrapper.Client(context.Background(), conn, cfg)
+		con, err = wrapper.Client(context.Background(), conn, cfg)
 	} else {
 		// Assumes we offer to be passive and this is accepted.
 		var l *wrapper.Listener
@@ -56,14 +56,14 @@ func (b *TransportBase) StartBase(conn net.Conn, config *Config) error {
 		if err != nil {
 			return err
 		}
-		s, err = l.Accept()
+		con, err = l.Accept()
 	}
 
 	if err != nil {
 		return err
 	}
 
-	return b.startBase(s)
+	return b.startBase(con)
 }
 
 func (b *TransportBase) startBase(s *wrapper.Conn) error {
@@ -94,7 +94,7 @@ func (b *TransportBase) CreateBidirectionalStream() (*BidirectionalStream, error
 	}, nil
 }
 
-// CreateUnidirectionalStream creates an QuicWritableStream object
+// CreateUnidirectionalStream creates an QuicWritableStream object.
 func (b *TransportBase) CreateUnidirectionalStream() (*WritableStream, error) {
 	s, err := b.session.OpenUniStream()
 	if err != nil {
@@ -140,14 +140,14 @@ func (b *TransportBase) onUnidirectionalStream(s *ReadableStream) {
 	}
 }
 
-// GetRemoteCertificates returns the certificate chain in use by the remote side
+// GetRemoteCertificates returns the certificate chain in use by the remote side.
 func (b *TransportBase) GetRemoteCertificates() []*x509.Certificate {
 	return b.session.GetRemoteCertificates()
 }
 
 func (b *TransportBase) acceptStreams() {
 	for {
-		s, err := b.session.AcceptStream()
+		stream, err := b.session.AcceptStream()
 		if err != nil {
 			b.log.Errorf("Failed to accept stream: %v", err)
 			stopErr := b.Stop(TransportStopInfo{
@@ -156,10 +156,11 @@ func (b *TransportBase) acceptStreams() {
 			if stopErr != nil {
 				b.log.Errorf("Failed to stop transport: %v", stopErr)
 			}
+
 			return
 		}
-		if s != nil {
-			stream := &BidirectionalStream{s: s}
+		if stream != nil {
+			stream := &BidirectionalStream{s: stream}
 			b.onBidirectionalStream(stream)
 		} else {
 			return
@@ -169,7 +170,7 @@ func (b *TransportBase) acceptStreams() {
 
 func (b *TransportBase) acceptUniStreams() {
 	for {
-		s, err := b.session.AcceptUniStream()
+		stream, err := b.session.AcceptUniStream()
 		if err != nil {
 			b.log.Errorf("Failed to accept stream: %v", err)
 			stopErr := b.Stop(TransportStopInfo{
@@ -178,10 +179,11 @@ func (b *TransportBase) acceptUniStreams() {
 			if stopErr != nil {
 				b.log.Errorf("Failed to stop transport: %v", stopErr)
 			}
+
 			return
 		}
-		if s != nil {
-			stream := &ReadableStream{s: s}
+		if stream != nil {
+			stream := &ReadableStream{s: stream}
 			b.onUnidirectionalStream(stream)
 		} else {
 			return
@@ -198,9 +200,8 @@ func (b *TransportBase) Stop(stopInfo TransportStopInfo) error {
 		return nil
 	}
 
-	if stopInfo.ErrorCode > 0 ||
-		len(stopInfo.Reason) > 0 {
-		return b.session.CloseWithError(stopInfo.ErrorCode, errors.New(stopInfo.Reason)) //nolint:goerr113
+	if stopInfo.ErrorCode > 0 || len(stopInfo.Reason) > 0 {
+		return b.session.CloseWithError(stopInfo.ErrorCode, errors.New(stopInfo.Reason)) //nolint:err113
 	}
 
 	return b.session.Close()

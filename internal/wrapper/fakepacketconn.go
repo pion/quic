@@ -17,11 +17,13 @@ func newFakePacketConn(conn net.Conn) *fakePacketConn {
 
 func (c *fakePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	n, err := c.c.Read(p)
+
 	return n, c.c.RemoteAddr(), err
 }
 
 func (c *fakePacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	n, err := c.c.Write(p)
+
 	return n, err
 }
 

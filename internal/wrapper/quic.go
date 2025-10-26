@@ -16,7 +16,7 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
-// Config represents the configuration of a Quic session
+// Config represents the configuration of a Quic session.
 type Config struct {
 	Certificate *x509.Certificate
 	PrivateKey  crypto.PrivateKey
@@ -35,7 +35,7 @@ func getDefaultQuicConfig() *quic.Config {
 
 var errClientWithoutRemoteAddress = errors.New("quic: creating client without remote address")
 
-// Client establishes a QUIC session over an existing conn
+// Client establishes a QUIC session over an existing conn.
 func Client(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
 	rAddr := conn.RemoteAddr()
 	if rAddr == nil {
@@ -46,10 +46,11 @@ func Client(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &Conn{c: c}, nil
 }
 
-// Dial dials the address over quic
+// Dial dials the address over quic.
 func Dial(ctx context.Context, addr string, config *Config) (*Conn, error) {
 	c, err := quic.DialAddr(ctx, addr, getTLSConfig(config), getDefaultQuicConfig())
 	if err != nil {
@@ -59,21 +60,23 @@ func Dial(ctx context.Context, addr string, config *Config) (*Conn, error) {
 	return &Conn{c: c}, nil
 }
 
-// Server creates a listener for listens for incoming QUIC sessions
+// Server creates a listener for listens for incoming QUIC sessions.
 func Server(conn net.Conn, config *Config) (*Listener, error) {
 	l, err := quic.Listen(newFakePacketConn(conn), getTLSConfig(config), getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
+
 	return &Listener{l: l}, nil
 }
 
-// Listen listens on the address over quic
+// Listen listens on the address over quic.
 func Listen(addr string, config *Config) (*Listener, error) {
 	l, err := quic.ListenAddr(addr, getTLSConfig(config), getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
+
 	return &Listener{l: l}, nil
 }
 
@@ -91,12 +94,12 @@ func getTLSConfig(config *Config) *tls.Config {
 	}
 }
 
-// A Session is a QUIC connection between two peers.
+// A Conn is a QUIC connection between two peers.
 type Conn struct {
 	c *quic.Conn
 }
 
-// OpenStream opens a new stream
+// OpenStream opens a new stream.
 func (c *Conn) OpenStream() (*Stream, error) {
 	str, err := c.c.OpenStream()
 	if err != nil {
@@ -106,7 +109,7 @@ func (c *Conn) OpenStream() (*Stream, error) {
 	return &Stream{s: str}, nil
 }
 
-// OpenUniStream opens and returns a new WritableStream
+// OpenUniStream opens and returns a new WritableStream.
 func (c *Conn) OpenUniStream() (*WritableStream, error) {
 	str, err := c.c.OpenUniStream()
 	if err != nil {
@@ -116,28 +119,33 @@ func (c *Conn) OpenUniStream() (*WritableStream, error) {
 	return &WritableStream{s: str}, nil
 }
 
-// AcceptStream accepts an incoming stream
+// AcceptStream accepts an incoming stream.
 func (c *Conn) AcceptStream() (*Stream, error) {
 	str, err := c.c.AcceptStream(context.TODO())
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "Application error 0x0") {
+			//nolint:nilnil // todo fix.
 			return nil, nil // Errorcode == 0 implies session is closed without error
 		}
+
 		return nil, err
 	}
 
 	return &Stream{s: str}, nil
 }
 
-// AcceptUniStream accepts an incoming unidirectional stream and returns a ReadableStream
+// AcceptUniStream accepts an incoming unidirectional stream and returns a ReadableStream.
 func (c *Conn) AcceptUniStream() (*ReadableStream, error) {
 	str, err := c.c.AcceptUniStream(context.TODO())
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "Application error 0x0") {
+			//nolint:nilnil // todo fix.
 			return nil, nil // Errorcode == 0 implies session is closed without error
 		}
+
 		return nil, err
 	}
+
 	return &ReadableStream{s: str}, nil
 }
 
@@ -146,7 +154,7 @@ func (c *Conn) GetRemoteCertificates() []*x509.Certificate {
 	return c.c.ConnectionState().TLS.PeerCertificates
 }
 
-// Close the connection
+// Close the connection.
 func (c *Conn) Close() error {
 	return c.c.CloseWithError(0, io.EOF.Error())
 }
