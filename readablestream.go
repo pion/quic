@@ -3,8 +3,8 @@ package quic
 import (
 	"time"
 
-	quic "github.com/lucas-clemente/quic-go"
 	"github.com/pion/quic/internal/wrapper"
+	quic "github.com/quic-go/quic-go"
 )
 
 // ReadableStream represents a unidirectional quic ReceiveStream

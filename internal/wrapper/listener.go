@@ -3,7 +3,7 @@ package wrapper
 import (
 	"context"
 
-	quic "github.com/lucas-clemente/quic-go"
+	quic "github.com/quic-go/quic-go"
 )
 
 // A Listener for incoming QUIC connections

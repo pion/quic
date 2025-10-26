@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	quic "github.com/lucas-clemente/quic-go"
+	quic "github.com/quic-go/quic-go"
 )
 
 // ReadableStream represents a wrapped quic-go ReceiveStream

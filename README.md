@@ -21,7 +21,7 @@ pion/quic implements the following experimental QUIC APIs:
 - [QUIC API for Peer-to-peer Connections](https://w3c.github.io/webrtc-quic/)
 - [QUIC API for Client-to-Server Connections](https://w3c.github.io/webrtc-quic/cs)
 
-The library doesn't implement the QUIC protocol itself. It relies on [quic-go](https://github.com/lucas-clemente/quic-go) for this purpose.
+The library doesn't implement the QUIC protocol itself. It relies on [quic-go](https://github.com/quic-go/quic-go ) for this purpose.
 
 ### Usage
 The Pion QUIC API aims to closely match the JavaScript API specs. Most existing documentation should therefore be useful when working with Pion. Furthermore, our **[GoDoc](https://godoc.org/github.com/pion/quic)** is actively maintained.
