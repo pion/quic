@@ -5,7 +5,7 @@ go 1.24
 toolchain go1.24.4
 
 require (
-	github.com/pion/logging v0.2.2
+	github.com/pion/logging v0.2.4
 	github.com/pion/transport v0.14.1
 	github.com/quic-go/quic-go v0.55.0
 	github.com/stretchr/testify v1.11.1
