@@ -11,10 +11,14 @@
 # SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 # SPDX-License-Identifier: MIT
 
-name: Lint
+name: Fix go.sum
 on:
-  pull_request:
+  push:
+    branches:
+      - renovate/*
 
 jobs:
-  lint:
-    uses: pion/.goassets/.github/workflows/lint.reusable.yml@master
+  fix:
+    uses: pion/.goassets/.github/workflows/renovate-go-sum-fix.reusable.yml@master
+    secrets:
+      token: ${{ secrets.PIONBOT_PRIVATE_KEY }}
