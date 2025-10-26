@@ -11,10 +11,10 @@
 # SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 # SPDX-License-Identifier: MIT
 
-name: Lint
+name: API
 on:
   pull_request:
 
 jobs:
-  lint:
-    uses: pion/.goassets/.github/workflows/lint.reusable.yml@master
+  check:
+    uses: pion/.goassets/.github/workflows/api.reusable.yml@master

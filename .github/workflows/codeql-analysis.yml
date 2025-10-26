@@ -11,10 +11,18 @@
 # SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 # SPDX-License-Identifier: MIT
 
-name: Lint
+name: CodeQL
+
 on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 * * 0'
   pull_request:
+    branches:
+      - master
+    paths:
+      - '**.go'
 
 jobs:
-  lint:
-    uses: pion/.goassets/.github/workflows/lint.reusable.yml@master
+  analyze:
+    uses: pion/.goassets/.github/workflows/codeql-analysis.reusable.yml@master
