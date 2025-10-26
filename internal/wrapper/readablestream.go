@@ -11,7 +11,7 @@ import (
 
 // ReadableStream represents a wrapped quic-go ReceiveStream
 type ReadableStream struct {
-	s quic.ReceiveStream
+	s *quic.ReceiveStream
 }
 
 // Read implements the Conn Read method.
@@ -49,6 +49,6 @@ func (s *ReadableStream) SetReadDeadline(t time.Time) error {
 }
 
 // Detach returns the underlying quic-go ReveiveStream
-func (s *ReadableStream) Detach() quic.ReceiveStream {
+func (s *ReadableStream) Detach() *quic.ReceiveStream {
 	return s.s
 }

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/quic-go/quic-go"
 )
@@ -24,38 +25,38 @@ type Config struct {
 
 func getDefaultQuicConfig() *quic.Config {
 	return &quic.Config{
-		MaxIncomingStreams:                    1000,
-		MaxIncomingUniStreams:                 1000,
-		MaxReceiveStreamFlowControlWindow:     3 * (1 << 20),   // 3 MB
-		MaxReceiveConnectionFlowControlWindow: 4.5 * (1 << 20), // 4.5 MB
-		KeepAlive:                             true,
+		MaxIncomingStreams:         1000,
+		MaxIncomingUniStreams:      1000,
+		MaxStreamReceiveWindow:     3 << 20,
+		MaxConnectionReceiveWindow: 9 << 19,
+		KeepAlivePeriod:            30 * time.Second,
 	}
 }
 
 var errClientWithoutRemoteAddress = errors.New("quic: creating client without remote address")
 
 // Client establishes a QUIC session over an existing conn
-func Client(conn net.Conn, config *Config) (*Session, error) {
+func Client(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
 	rAddr := conn.RemoteAddr()
 	if rAddr == nil {
 		return nil, errClientWithoutRemoteAddress
 	}
 
-	s, err := quic.Dial(newFakePacketConn(conn), rAddr, rAddr.String(), getTLSConfig(config), getDefaultQuicConfig())
+	c, err := quic.Dial(ctx, newFakePacketConn(conn), rAddr, getTLSConfig(config), getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
-	return &Session{s: s}, nil
+	return &Conn{c: c}, nil
 }
 
 // Dial dials the address over quic
-func Dial(addr string, config *Config) (*Session, error) {
-	s, err := quic.DialAddr(addr, getTLSConfig(config), getDefaultQuicConfig())
+func Dial(ctx context.Context, addr string, config *Config) (*Conn, error) {
+	c, err := quic.DialAddr(ctx, addr, getTLSConfig(config), getDefaultQuicConfig())
 	if err != nil {
 		return nil, err
 	}
 
-	return &Session{s: s}, nil
+	return &Conn{c: c}, nil
 }
 
 // Server creates a listener for listens for incoming QUIC sessions
@@ -91,43 +92,46 @@ func getTLSConfig(config *Config) *tls.Config {
 }
 
 // A Session is a QUIC connection between two peers.
-type Session struct {
-	s quic.Session
+type Conn struct {
+	c *quic.Conn
 }
 
 // OpenStream opens a new stream
-func (s *Session) OpenStream() (*Stream, error) {
-	str, err := s.s.OpenStream()
+func (c *Conn) OpenStream() (*Stream, error) {
+	str, err := c.c.OpenStream()
 	if err != nil {
 		return nil, err
 	}
+
 	return &Stream{s: str}, nil
 }
 
 // OpenUniStream opens and returns a new WritableStream
-func (s *Session) OpenUniStream() (*WritableStream, error) {
-	str, err := s.s.OpenUniStream()
+func (c *Conn) OpenUniStream() (*WritableStream, error) {
+	str, err := c.c.OpenUniStream()
 	if err != nil {
 		return nil, err
 	}
+
 	return &WritableStream{s: str}, nil
 }
 
 // AcceptStream accepts an incoming stream
-func (s *Session) AcceptStream() (*Stream, error) {
-	str, err := s.s.AcceptStream(context.TODO())
+func (c *Conn) AcceptStream() (*Stream, error) {
+	str, err := c.c.AcceptStream(context.TODO())
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "Application error 0x0") {
 			return nil, nil // Errorcode == 0 implies session is closed without error
 		}
 		return nil, err
 	}
+
 	return &Stream{s: str}, nil
 }
 
 // AcceptUniStream accepts an incoming unidirectional stream and returns a ReadableStream
-func (s *Session) AcceptUniStream() (*ReadableStream, error) {
-	str, err := s.s.AcceptUniStream(context.TODO())
+func (c *Conn) AcceptUniStream() (*ReadableStream, error) {
+	str, err := c.c.AcceptUniStream(context.TODO())
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "Application error 0x0") {
 			return nil, nil // Errorcode == 0 implies session is closed without error
@@ -138,21 +142,22 @@ func (s *Session) AcceptUniStream() (*ReadableStream, error) {
 }
 
 // GetRemoteCertificates returns the certificate chain presented by remote peer.
-func (s *Session) GetRemoteCertificates() []*x509.Certificate {
-	return s.s.ConnectionState().PeerCertificates
+func (c *Conn) GetRemoteCertificates() []*x509.Certificate {
+	return c.c.ConnectionState().TLS.PeerCertificates
 }
 
 // Close the connection
-func (s *Session) Close() error {
-	return s.CloseWithError(0, io.EOF)
+func (c *Conn) Close() error {
+	return c.c.CloseWithError(0, io.EOF.Error())
 }
 
 // CloseWithError closes the connection with an error.
 // The error must not be nil.
-func (s *Session) CloseWithError(code uint16, err error) error {
+func (c *Conn) CloseWithError(code uint16, err error) error {
 	e := "nil"
 	if err != nil {
 		e = err.Error()
 	}
-	return s.s.CloseWithError(quic.ErrorCode(code), e)
+
+	return c.c.CloseWithError(quic.ApplicationErrorCode(code), e)
 }

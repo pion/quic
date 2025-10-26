@@ -1,6 +1,7 @@
 package quic
 
 import (
+	"context"
 	"crypto"
 	"crypto/x509"
 	"errors"
@@ -18,7 +19,7 @@ type TransportBase struct {
 	lock                       sync.RWMutex
 	onBidirectionalStreamHdlr  func(*BidirectionalStream)
 	onUnidirectionalStreamHdlr func(*ReadableStream)
-	session                    *wrapper.Session
+	session                    *wrapper.Conn
 	log                        logging.LeveledLogger
 }
 
@@ -43,11 +44,11 @@ func (b *TransportBase) StartBase(conn net.Conn, config *Config) error {
 	cfg := config.clone()
 	cfg.SkipVerify = true // Using self signed certificates; WebRTC will check the fingerprint
 
-	var s *wrapper.Session
+	var s *wrapper.Conn
 	var err error
 	if config.Client {
 		// Assumes the peer offered to be passive and we accepted.
-		s, err = wrapper.Client(conn, cfg)
+		s, err = wrapper.Client(context.Background(), conn, cfg)
 	} else {
 		// Assumes we offer to be passive and this is accepted.
 		var l *wrapper.Listener
@@ -65,7 +66,7 @@ func (b *TransportBase) StartBase(conn net.Conn, config *Config) error {
 	return b.startBase(s)
 }
 
-func (b *TransportBase) startBase(s *wrapper.Session) error {
+func (b *TransportBase) startBase(s *wrapper.Conn) error {
 	b.session = s
 
 	go b.acceptStreams()

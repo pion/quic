@@ -8,16 +8,16 @@ import (
 
 // A Listener for incoming QUIC connections
 type Listener struct {
-	l quic.Listener
+	l *quic.Listener
 }
 
 // Accept accepts incoming streams
-func (l *Listener) Accept() (*Session, error) {
-	s, err := l.l.Accept(context.TODO())
+func (l *Listener) Accept() (*Conn, error) {
+	c, err := l.l.Accept(context.TODO())
 	if err != nil {
 		return nil, err
 	}
-	return &Session{s: s}, nil
+	return &Conn{c: c}, nil
 }
 
 // Close closes the listener

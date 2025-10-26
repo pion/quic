@@ -3,6 +3,7 @@
 package quic
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -24,7 +25,7 @@ func NewTransport(url string, config *Config) (*Transport, error) {
 	cfg := config.clone()
 	cfg.SkipVerify = true // Using self signed certificates for now
 
-	s, err := wrapper.Dial(url, cfg)
+	s, err := wrapper.Dial(context.Background(), url, cfg)
 	if err != nil {
 		return nil, err
 	}

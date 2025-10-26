@@ -8,7 +8,7 @@ import (
 
 // WritableStream represents a wrapped quic-go SendStream
 type WritableStream struct {
-	s quic.SendStream
+	s *quic.SendStream
 }
 
 // Write implements the Conn Write method.
@@ -45,6 +45,6 @@ func (s *WritableStream) SetWriteDeadline(t time.Time) error {
 }
 
 // Detach returns the underlying quic-go SendStream
-func (s *WritableStream) Detach() quic.SendStream {
+func (s *WritableStream) Detach() *quic.SendStream {
 	return s.s
 }

@@ -29,6 +29,6 @@ func (s *WritableStream) SetWriteDeadline(t time.Time) error {
 }
 
 // Detach detaches the underlying quic-go SendStream
-func (s *WritableStream) Detach() quic.SendStream {
+func (s *WritableStream) Detach() *quic.SendStream {
 	return s.s.Detach()
 }

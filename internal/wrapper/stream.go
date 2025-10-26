@@ -11,7 +11,7 @@ import (
 
 // Stream represents a wrapped quic-go Stream
 type Stream struct {
-	s quic.Stream
+	s *quic.Stream
 }
 
 // Read implements the Conn Read method.
@@ -72,6 +72,6 @@ func (s *Stream) SetDeadline(t time.Time) error {
 }
 
 // Detach returns the underlying quic-go Stream
-func (s *Stream) Detach() quic.Stream {
+func (s *Stream) Detach() *quic.Stream {
 	return s.s
 }

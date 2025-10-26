@@ -32,6 +32,6 @@ func (s *ReadableStream) SetReadDeadline(t time.Time) error {
 }
 
 // Detach detaches and returns the underlying quic-go ReceiveStream
-func (s *ReadableStream) Detach() quic.ReceiveStream {
+func (s *ReadableStream) Detach() *quic.ReceiveStream {
 	return s.s.Detach()
 }

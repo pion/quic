@@ -38,6 +38,6 @@ func (s *BidirectionalStream) SetDeadline(t time.Time) error {
 }
 
 // Detach detaches the underlying quic-go stream
-func (s *BidirectionalStream) Detach() quic.Stream {
+func (s *BidirectionalStream) Detach() *quic.Stream {
 	return s.s.Detach()
 }
