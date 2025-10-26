@@ -7,6 +7,8 @@ import (
 	quic "github.com/quic-go/quic-go"
 )
 
+type StreamID int64
+
 // ReadableStream represents a unidirectional quic ReceiveStream
 type ReadableStream struct {
 	s *wrapper.ReadableStream
@@ -22,8 +24,8 @@ func (s *ReadableStream) ReadInto(data []byte) (StreamReadResult, error) {
 }
 
 // StreamID returns the ID of the ReadableStream
-func (s *ReadableStream) StreamID() uint64 {
-	return s.s.StreamID()
+func (s *ReadableStream) StreamID() StreamID {
+	return StreamID(s.s.StreamID())
 }
 
 // SetReadDeadline sets the deadline for future Read calls. A zero value for t means Read will not time out.
