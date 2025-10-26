@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
 // Package quic implements the QUIC API for Client-to-Server Connections
 // https://w3c.github.io/webrtc-quic/
 package quic
