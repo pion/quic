@@ -56,8 +56,8 @@ func (s *Stream) WriteQuic(p []byte, fin bool) (int, error) {
 }
 
 // StreamID returns the ID of the QuicStream
-func (s *Stream) StreamID() uint64 {
-	return uint64(s.s.StreamID())
+func (s *Stream) StreamID() int64 {
+	return int64(s.s.StreamID())
 }
 
 // Close implements the Conn Close method. It is used to close
