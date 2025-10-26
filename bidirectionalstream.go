@@ -15,29 +15,32 @@ type BidirectionalStream struct {
 // Write writes data to the stream.
 func (s *BidirectionalStream) Write(data StreamWriteParameters) error {
 	_, err := s.s.WriteQuic(data.Data, data.Finished)
+
 	return err
 }
 
 // ReadInto reads from the stream into the buffer.
 func (s *BidirectionalStream) ReadInto(data []byte) (StreamReadResult, error) {
 	n, fin, err := s.s.ReadQuic(data)
+
 	return StreamReadResult{
 		Amount:   n,
 		Finished: fin,
 	}, err
 }
 
-// StreamID returns the ID of the QuicStream
+// StreamID returns the ID of the QuicStream.
 func (s *BidirectionalStream) StreamID() StreamID {
 	return StreamID(s.s.StreamID())
 }
 
-// SetDeadline sets read and write deadlines associated with the stream. A zero value for t means Read and Write will not timeout.
+// SetDeadline sets read and write deadlines associated with the stream.
+// A zero value for t means Read and Write will not timeout.
 func (s *BidirectionalStream) SetDeadline(t time.Time) error {
 	return s.s.SetDeadline(t)
 }
 
-// Detach detaches the underlying quic-go stream
+// Detach detaches the underlying quic-go stream.
 func (s *BidirectionalStream) Detach() *quic.Stream {
 	return s.s.Detach()
 }

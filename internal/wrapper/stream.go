@@ -9,7 +9,7 @@ import (
 	quic "github.com/quic-go/quic-go"
 )
 
-// Stream represents a wrapped quic-go Stream
+// Stream represents a wrapped quic-go Stream.
 type Stream struct {
 	s *quic.Stream
 }
@@ -19,22 +19,22 @@ func (s *Stream) Read(p []byte) (int, error) {
 	return s.s.Read(p)
 }
 
-// ReadQuic reads a frame and determines if it is the final frame
+// ReadQuic reads a frame and determines if it is the final frame.
 func (s *Stream) ReadQuic(p []byte) (int, bool, error) {
 	n, err := s.s.Read(p)
 	fin := false
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			fin = true
+
+	if errors.Is(err, io.EOF) {
+		fin = true
+	} else if err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) {
+			fin = !ne.Timeout()
 		} else {
-			if ne, ok := err.(net.Error); ok {
-				fin = !ne.Timeout()
-			} else {
-				// which error isn't fin=true but timeout?
-				fin = true
-			}
+			fin = true
 		}
 	}
+
 	return n, fin, err
 }
 
@@ -43,7 +43,7 @@ func (s *Stream) Write(p []byte, fin bool) (int, error) {
 	return s.s.Write(p)
 }
 
-// WriteQuic writes a frame and closes the stream if fin is true
+// WriteQuic writes a frame and closes the stream if fin is true.
 func (s *Stream) WriteQuic(p []byte, fin bool) (int, error) {
 	n, err := s.s.Write(p)
 	if err != nil {
@@ -52,10 +52,11 @@ func (s *Stream) WriteQuic(p []byte, fin bool) (int, error) {
 	if fin {
 		return n, s.s.Close()
 	}
+
 	return n, nil
 }
 
-// StreamID returns the ID of the QuicStream
+// StreamID returns the ID of the QuicStream.
 func (s *Stream) StreamID() int64 {
 	return int64(s.s.StreamID())
 }
@@ -66,12 +67,13 @@ func (s *Stream) Close() error {
 	return s.s.Close()
 }
 
-// SetDeadline sets read and write deadlines associated with the stream. A zero value for t means Read and Write will not timeout.
+// SetDeadline sets read and write deadlines associated with the stream.
+// A zero value for t means Read and Write will not timeout.
 func (s *Stream) SetDeadline(t time.Time) error {
 	return s.s.SetDeadline(t)
 }
 
-// Detach returns the underlying quic-go Stream
+// Detach returns the underlying quic-go Stream.
 func (s *Stream) Detach() *quic.Stream {
 	return s.s
 }
