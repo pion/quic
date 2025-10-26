@@ -19,8 +19,8 @@ func (s *WritableStream) Write(data StreamWriteParameters) error {
 }
 
 // StreamID returns the ID of the WritableStream
-func (s *WritableStream) StreamID() uint64 {
-	return s.s.StreamID()
+func (s *WritableStream) StreamID() StreamID {
+	return StreamID(s.s.StreamID())
 }
 
 // SetWriteDeadline sets the deadline for future Write calls. A zero value for t means Write will not time out.

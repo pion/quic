@@ -39,8 +39,8 @@ func (s *ReadableStream) ReadQuic(p []byte) (int, bool, error) {
 }
 
 // StreamID returns the ID of the QuicStream
-func (s *ReadableStream) StreamID() uint64 {
-	return uint64(s.s.StreamID())
+func (s *ReadableStream) StreamID() int64 {
+	return int64(s.s.StreamID())
 }
 
 // SetReadDeadline sets the deadline for future Read calls. A zero value for t means Read will not time out.
