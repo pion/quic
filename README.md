@@ -20,7 +20,7 @@
 <br>
 
 An work in progress experimental QUIC API that implements:
-- QUIC API wrapper Peer-to-peer and server/clients communications.
+- QUIC API wrapper for Peer-to-peer and server/clients communications.
 - [draft-ietf-webtrans-http3-14](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/)
 
 The library doesn't implement the QUIC protocol itself. It relies on [quic-go](https://github.com/quic-go/quic-go ) for this purpose.
