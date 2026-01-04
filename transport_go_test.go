@@ -111,7 +111,8 @@ func TestTransport_E2E(t *testing.T) {
 	for i := 0; i < count; i++ {
 		testData := bytes.Repeat([]byte(fmt.Sprintf("%04d", i)), repeat)
 		binary.BigEndian.PutUint16(buf[:], uint16(i)) //nolint:gosec
-		testData = append(testData, buf[0], buf[1])
+		assert.GreaterOrEqual(t, len(testData), 2)
+		testData = append(testData, buf[0], buf[1]) //nolint:gosec
 
 		_, _ = clientTx.Write(testData) // writing to a buffer never fails (hi golint)
 
