@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 //go:build !js
-// +build !js
 
 package quic
 
@@ -108,8 +107,8 @@ func TestTransport_E2E(t *testing.T) {
 
 	// sent side
 	var buf [2]byte
-	for i := 0; i < count; i++ {
-		testData := bytes.Repeat([]byte(fmt.Sprintf("%04d", i)), repeat)
+	for i := range count {
+		testData := bytes.Repeat(fmt.Appendf(nil, "%04d", i), repeat)
 		binary.BigEndian.PutUint16(buf[:], uint16(i)) //nolint:gosec
 		assert.GreaterOrEqual(t, len(testData), 2)
 		testData = append(testData, buf[0], buf[1]) //nolint:gosec
