@@ -6,7 +6,7 @@ toolchain go1.26.3
 
 require (
 	github.com/pion/logging v0.2.4
-	github.com/pion/transport/v4 v4.0.1
+	github.com/pion/transport/v4 v4.0.2
 	github.com/quic-go/quic-go v0.59.0
 	github.com/stretchr/testify v1.11.1
 )
@@ -17,6 +17,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
