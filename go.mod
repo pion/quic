@@ -2,7 +2,7 @@ module github.com/pion/quic
 
 go 1.24.0
 
-toolchain go1.26.6
+toolchain go1.27.1
 
 require (
 	github.com/pion/logging v0.2.4
