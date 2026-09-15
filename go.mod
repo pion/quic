@@ -6,7 +6,7 @@ toolchain go1.26.6
 
 require (
 	github.com/pion/logging v0.2.4
-	github.com/pion/transport/v4 v4.1.1
+	github.com/pion/transport/v5 v5.0.0
 	github.com/quic-go/quic-go v0.59.1
 	github.com/stretchr/testify v1.12.1
 )
