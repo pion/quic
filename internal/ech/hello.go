@@ -65,9 +65,6 @@ func PrepareClientHello(configList, body []byte) (*ClientContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	if prefix[35+int(prefix[34])] != 0 {
-		return nil, ErrInvalid
-	}
 	innerExts, nameLength, err := prepareInnerExtensions(exts)
 	if err != nil {
 		return nil, err
@@ -341,10 +338,6 @@ func EncodeInnerClientHello(inner []byte, maximumNameLength uint8, nameLength in
 		return nil, ErrInvalid
 	}
 	sessionLen := int(inner[34])
-	// ECH inners cannot offer DTLS 1.2
-	if inner[35+sessionLen] != 0 {
-		return nil, ErrInvalid
-	}
 	out := append(bytes.Clone(inner[:34]), 0)
 	out = append(out, inner[35+sessionLen:]...)
 	padding := max(0, int(maximumNameLength)-nameLength)
@@ -398,7 +391,7 @@ func appendExtensions(prefix []byte, exts []extension.Raw) ([]byte, error) {
 // time, preserving their order and rejecting duplicates and forbidden references.
 func DecodeInnerClientHello(encoded, outer []byte) ([]byte, error) {
 	prefix, inner, err := splitHello(encoded, true)
-	if err != nil || prefix[34] != 0 || prefix[35] != 0 || !hasInner(inner) {
+	if err != nil || prefix[34] != 0 || !hasInner(inner) {
 		return nil, ErrInvalid
 	}
 	_, outerExts, err := splitHello(outer, false)

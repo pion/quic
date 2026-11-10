@@ -68,7 +68,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond)
 
-		assert.NoError(t, sendClientHello([]byte{}, ca, 0, extensions))
+		assert.NoError(t, sendClientHello(ca, 0, extensions))
 
 		time.Sleep(50 * time.Millisecond)
 

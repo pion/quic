@@ -26,7 +26,6 @@ existing connection.
 type MessageClientHello struct {
 	Version protocol.Version
 	Random  Random
-	Cookie  []byte
 
 	SessionID []byte
 
@@ -47,7 +46,7 @@ func (m *MessageClientHello) MarshalSize() int {
 	cipherSuitesSize := 2 + 2*len(m.CipherSuiteIDs)
 	compressionSize := 1 + len(m.CompressionMethods)
 
-	return handshakeMessageClientHelloVariableWidthStart + 1 + len(m.SessionID) + 1 + len(m.Cookie) + cipherSuitesSize + compressionSize + extension.MarshalListSize(m.Extensions)
+	return handshakeMessageClientHelloVariableWidthStart + 1 + len(m.SessionID) + cipherSuitesSize + compressionSize + extension.MarshalListSize(m.Extensions)
 }
 
 // Marshal encodes the Handshake.
@@ -84,9 +83,6 @@ type preparedClientHello struct {
 }
 
 func (m *MessageClientHello) prepareMarshal() (preparedClientHello, error) {
-	if len(m.Cookie) > 255 {
-		return preparedClientHello{}, dtlserrors.ErrCookieTooLong
-	}
 	if len(m.SessionID) > 255 {
 		return preparedClientHello{}, dtlserrors.ErrSessionIDTooLong
 	}
@@ -95,7 +91,7 @@ func (m *MessageClientHello) prepareMarshal() (preparedClientHello, error) {
 	}
 
 	extensions, err := extension.PrepareList(m.Extensions)
-	size := handshakeMessageClientHelloVariableWidthStart + 1 + len(m.SessionID) + 1 + len(m.Cookie) + 2 + 2*len(m.CipherSuiteIDs) + 1 + len(m.CompressionMethods) + extensions.MarshalSize()
+	size := handshakeMessageClientHelloVariableWidthStart + 1 + len(m.SessionID) + 2 + 2*len(m.CipherSuiteIDs) + 1 + len(m.CompressionMethods) + extensions.MarshalSize()
 	prepared := preparedClientHello{extensions: extensions, size: size}
 	if size < 0 {
 		return prepared, dtlserrors.ErrLengthMismatch
@@ -120,12 +116,6 @@ func (m *MessageClientHello) marshalTo(out []byte, extensions extension.Prepared
 	offset += 1
 
 	n = copy(out[offset:], m.SessionID)
-	offset += n
-
-	out[offset] = byte(len(m.Cookie)) //nolint:gosec // G115: cookie length is validated to be <= 255 above.
-	offset += 1
-
-	n = copy(out[offset:], m.Cookie)
 	offset += n
 
 	binary.BigEndian.PutUint16(out[offset:], uint16(2*len(m.CipherSuiteIDs))) //nolint:gosec // G115: length is uint16.
@@ -162,7 +152,6 @@ func (m *MessageClientHello) Unmarshal(data []byte) error {
 	m.Random.UnmarshalFixed(random)
 
 	m.SessionID = bytes.Clone(wire.SessionID)
-	m.Cookie = bytes.Clone(wire.Cookie)
 	m.CipherSuiteIDs = wire.CipherSuites
 	m.CompressionMethods, err = protocol.DecodeCompressionMethods(wire.Compression)
 	if err != nil {

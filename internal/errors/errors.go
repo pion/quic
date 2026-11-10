@@ -199,7 +199,6 @@ var (
 	ErrUnableToMarshalFragmented = stderrors.New("unable to marshal fragmented handshakes")
 	ErrHandshakeMessageUnset     = stderrors.New("handshake message unset, unable to marshal")
 	ErrInvalidSignHashAlgorithm  = stderrors.New("invalid signature/hash algorithm")
-	ErrCookieTooLong             = stderrors.New("cookie must not be longer than 255 bytes")
 	ErrInvalidExportedState      = stderrors.New("cannot restore an incomplete connection state")
 	ErrSessionIDTooLong          = stderrors.New("session ID must not be longer than 255 bytes")
 	ErrCompressionMethodsTooLong = stderrors.New(

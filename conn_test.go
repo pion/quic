@@ -108,7 +108,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(0, recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
-		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: make([]byte, 64), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}})
+		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: make([]byte, 32), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}})
 		assert.ErrorIs(t, werr, dtlserrors.ErrSequenceNumberOverflow, "Connection must fail when handshake packet reaches maximum sequence num")
 		assert.NoError(t, ca.Close())
 		assert.NoError(t, cb.Close())
@@ -259,13 +259,13 @@ func handshakePair(t *testing.T, clientOpts []ClientOption, serverOpts []ServerO
 }
 
 //nolint:unused // Used by Go 1.25+ tests in sync_test.go.
-func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensions []extension.Value, cipherSuiteIDsOverride ...uint16) error {
+func sendClientHello(ca net.Conn, sequenceNumber uint64, extensions []extension.Value, cipherSuiteIDsOverride ...uint16) error {
 	cipherSuites := cipherSuiteIDsOverride
 	if len(cipherSuites) == 0 {
 		cipherSuites = cipherSuiteIDs(defaultCipherSuites())
 	}
 
-	clientHello := handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: cookie, CipherSuiteIDs: cipherSuites, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions}
+	clientHello := handshake.MessageClientHello{Version: protocol.Version1_2, CipherSuiteIDs: cipherSuites, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions}
 
 	packet, err := marshalTestRecord(recordlayer.RecordConfig{
 		Version:        protocol.Version1_2,

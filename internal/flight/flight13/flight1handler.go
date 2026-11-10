@@ -103,7 +103,6 @@ func generateInitialClientHello(conn dtlsflight.Conn, flightCtx *handshakeContex
 	clientHello := &handshake.MessageClientHello{
 		Version:   protocol.Version1_2,
 		SessionID: state.SessionID,
-		Cookie:    nil,
 		Random:    state.LocalRandom,
 		// Add DTLS 1.3 ciphersuites
 		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),

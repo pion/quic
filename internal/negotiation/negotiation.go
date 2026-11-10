@@ -140,7 +140,7 @@ func clientHelloExtensions(body []byte) ([]byte, error) {
 	}
 
 	remainder := body[2+handshake.RandomLength:]
-	for _, width := range []int{1, 1, 2, 1} { // session ID, cookie, cipher suites, compression
+	for _, width := range []int{1, 2, 1} { // session ID, cipher suites, compression
 		if len(remainder) < width {
 			return nil, dtlserrors.ErrBufferTooSmall
 		}

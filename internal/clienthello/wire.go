@@ -19,7 +19,6 @@ type Wire struct {
 	// Prefix contains everything before the extensions vector.
 	Prefix       []byte
 	SessionID    []byte
-	Cookie       []byte
 	CipherSuites []uint16
 	// Compression includes its length prefix for the protocol decoder.
 	Compression []byte
@@ -49,9 +48,9 @@ func ValidateExtensions(extensions []extension.Raw, requirePSKLast bool) error {
 // them as inner-hello padding.
 func Parse(data []byte) (Wire, error) {
 	input := cryptobyte.String(data)
-	var session, cookie, suites, compression, extensions cryptobyte.String
+	var session, suites, compression, extensions cryptobyte.String
 	if !input.Skip(34) || !input.ReadUint8LengthPrefixed(&session) ||
-		!input.ReadUint8LengthPrefixed(&cookie) || !input.ReadUint16LengthPrefixed(&suites) {
+		!input.ReadUint16LengthPrefixed(&suites) {
 		return Wire{}, dtlserrors.ErrBufferTooSmall
 	}
 	if len(suites)%2 != 0 {
@@ -75,8 +74,8 @@ func Parse(data []byte) (Wire, error) {
 	}
 
 	return Wire{
-		Prefix:    data[:len(data)-len(extensionsStart)],
-		SessionID: session, Cookie: cookie,
+		Prefix:       data[:len(data)-len(extensionsStart)],
+		SessionID:    session,
 		CipherSuites: ids,
 		Compression:  compressionStart[:1+len(compression)],
 		Extensions:   raw, Trailing: input,

@@ -51,7 +51,6 @@ func TestHelloMarshalValidatesFieldsBeforePreparingExtensions(t *testing.T) {
 		message Message
 		err     error
 	}{
-		{name: "client cookie", message: &MessageClientHello{Cookie: make([]byte, 256), Extensions: extensions}, err: dtlserrors.ErrCookieTooLong},
 		{name: "client session ID", message: &MessageClientHello{SessionID: make([]byte, 256), Extensions: extensions}, err: dtlserrors.ErrSessionIDTooLong},
 		{name: "client compression methods", message: &MessageClientHello{CompressionMethods: make([]*protocol.CompressionMethod, 256), Extensions: extensions}, err: dtlserrors.ErrCompressionMethodsTooLong},
 		{name: "server cipher suite", message: &MessageServerHello{CompressionMethod: compressionMethod, Extensions: extensions}, err: dtlserrors.ErrCipherSuiteUnset},
