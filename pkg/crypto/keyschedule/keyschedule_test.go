@@ -1,0 +1,112 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package keyschedule
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+	"testing"
+
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/stretchr/testify/assert"
+)
+
+// RFC 5869 Appendix A.1 (Test Case 1, SHA-256).
+func TestHKDFExtract_SHA256_VectorA1(t *testing.T) {
+	// IKM = 0x0b repeated 22 bytes (RFC 5869 A.1)
+	ikm := bytes.Repeat([]byte{0x0b}, 22)
+
+	// salt = 0x000102030405060708090a0b0c (RFC 5869 A.1)
+	salt, _ := hex.DecodeString("000102030405060708090a0b0c")
+
+	// PRK expected (RFC 5869 A.1)
+	expected, _ := hex.DecodeString("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5")
+
+	actual, err := HkdfExtract(sha256.New, salt, ikm)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, actual)
+}
+
+func TestHKDFExtract_Nil_Hash_Error(t *testing.T) {
+	ikm := bytes.Repeat([]byte{0x0b}, 22)
+	salt, _ := hex.DecodeString("000102030405060708090a0b0c")
+
+	_, err := HkdfExtract(nil, salt, ikm)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleMissingHashFunction, err)
+}
+
+func TestHKDFExpandLabelValidInputs(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		secret  []byte
+		label   string
+		context []byte
+		length  int
+	}{
+		{"simple", bytes.Repeat([]byte{0x11}, sha256.Size), "client in", []byte{0xAA, 0xBB}, 16},
+		{"label encoding", make([]byte, sha256.Size), "key", nil, 32},
+		{"empty context", make([]byte, sha256.Size), "hi", []byte{}, 32},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			out, err := HkdfExpandLabel(sha256.New, test.secret, test.label, test.context, test.length)
+			assert.NoError(t, err)
+			assert.NotNil(t, out)
+		})
+	}
+}
+
+func TestHKDFLabel_Encoding_Shape_Label_Small(t *testing.T) {
+	testStr := "" // 0 + 6 < 7, 6 is the length of the prefix
+
+	secret := make([]byte, sha256.Size)
+	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleLabelTooSmall, err)
+}
+
+func TestHKDFLabel_Encoding_Shape_Label_Big(t *testing.T) {
+	testStr := strings.Repeat("a", 250) // 250 + 6 > 255, 6 is the length of the prefix
+
+	secret := make([]byte, sha256.Size)
+	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleLabelTooBig, err)
+}
+
+func TestHKDFLabel_Encoding_Shape_Context_Too_Big(t *testing.T) {
+	validLabel := "hi"
+	secret := make([]byte, sha256.Size)
+
+	invalidContext := bytes.Repeat([]byte{1}, 256)
+
+	_, err := HkdfExpandLabel(sha256.New, secret, validLabel, invalidContext, 32)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleContextTooBig, err)
+	assert.Equal(t, 256, len(invalidContext))
+
+	invalidContext = bytes.NewBufferString(strings.Repeat("a", 256)).Bytes()
+
+	_, err = HkdfExpandLabel(sha256.New, secret, validLabel, invalidContext, 32)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleContextTooBig, err)
+	assert.Equal(t, 256, len(invalidContext))
+}
+
+func TestDeriveSecret(t *testing.T) {
+	secret := bytes.Repeat([]byte{0x11}, sha256.Size)
+	ctx := []byte{0xAA, 0xBB}
+
+	transcript := sha256.New()
+	transcript.Write(ctx)
+
+	out, err := DeriveSecret(sha256.New, secret, "client in", transcript)
+	assert.NoError(t, err)
+	assert.NotNil(t, out)
+}
+
+func TestDeriveSecret_Empty_Transcript(t *testing.T) {
+	testStr := "key"
+
+	secret := make([]byte, sha256.Size)
+	_, err := DeriveSecret(sha256.New, secret, testStr, nil)
+	assert.NoError(t, err)
+}

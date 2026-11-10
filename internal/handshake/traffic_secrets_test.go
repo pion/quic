@@ -1,0 +1,329 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package dtlshandshake
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/hex"
+	"fmt"
+	"hash"
+	"testing"
+
+	"github.com/pion/dtls/v4/internal/ech"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestDeriveEarlyTrafficSecret(t *testing.T) {
+	raw := decodeRegressionHex(t, "0100002c000000000000002cfefd000000000000000000000000000000000000000000000000000000000000000000000002130101000000")
+	// calculated using Node's OpenSSL HMAC
+	for _, test := range []struct {
+		hash func() hash.Hash
+		want string
+	}{
+		{sha256.New, "822ba2d240a84149f158a479e7e4790d36306b03a7769fe5b4c2be92383e5004"},
+		{sha512.New384, "ef73f110094761886a4570e80d711c9e755e98df5ef9b27b1dd9c152e0835b02684cf39777863cbb52c7c9543198a35e"},
+	} {
+		psk := bytes.Repeat([]byte{0x42}, test.hash().Size())
+		secret, err := DeriveEarlyTrafficSecret(test.hash, psk, raw)
+		require.NoError(t, err)
+		assert.Equal(t, decodeRegressionHex(t, test.want), secret)
+		changed := bytes.Clone(raw)
+		changed[5]++
+		same, err := DeriveEarlyTrafficSecret(test.hash, psk, changed)
+		require.NoError(t, err)
+		assert.Equal(t, secret, same)
+		changed[len(changed)-1]++
+		different, err := DeriveEarlyTrafficSecret(test.hash, psk, changed)
+		require.NoError(t, err)
+		assert.NotEqual(t, secret, different)
+		_, err = DeriveEarlyTrafficSecret(test.hash, nil, raw)
+		require.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+		_, err = DeriveEarlyTrafficSecret(test.hash, psk, raw[:len(raw)-1])
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+		changed[0] = 2
+		_, err = DeriveEarlyTrafficSecret(test.hash, psk, changed)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+	}
+	_, err := DeriveEarlyTrafficSecret(nil, []byte{1}, raw)
+	require.ErrorIs(t, err, dtlserrors.ErrKeyScheduleMissingHashFunction)
+}
+
+func TestDeriveResumptionPSK(t *testing.T) {
+	for _, hashFunc := range []func() hash.Hash{sha256.New, sha512.New384} {
+		secret := bytes.Repeat([]byte{0x42}, hashFunc().Size())
+		first, err := DeriveResumptionPSK(hashFunc, secret, []byte{0})
+		require.NoError(t, err)
+		require.Len(t, first, len(secret))
+		second, err := DeriveResumptionPSK(hashFunc, secret, []byte{1})
+		require.NoError(t, err)
+		assert.NotEqual(t, first, second)
+		again, err := DeriveResumptionPSK(hashFunc, secret, []byte{0})
+		require.NoError(t, err)
+		assert.Equal(t, first, again)
+		_, err = DeriveResumptionPSK(hashFunc, nil, []byte{0})
+		require.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+	}
+}
+
+// These vectors apply the RFC 8446 key schedule and Finished construction with
+// RFC 9147 section 5.9's "dtls13" label prefix. The encoding was
+// also checked with OpenSSL.
+func TestKeySchedule13RegressionVectors(t *testing.T) {
+	tests := []struct {
+		name string
+		hash func() hash.Hash
+
+		keyAgreementSecret      string
+		handshakeTranscriptHash string
+		serverFinishedHash      string
+		applicationHash         string
+		clientFinishedHash      string
+		resumptionHash          string
+
+		clientHandshakeSecret string
+		serverHandshakeSecret string
+		masterSecret          string
+		clientApplication     string
+		serverApplication     string
+		nextClientApplication string
+		nextServerApplication string
+		exporterMasterSecret  string
+		resumptionMaster      string
+		serverFinished        string
+		clientFinished        string
+	}{
+		{
+			name: "sha256",
+			hash: sha256.New,
+			keyAgreementSecret: "000102030405060708090a0b0c0d0e0f" +
+				"101112131415161718191a1b1c1d1e1f",
+			handshakeTranscriptHash: "202122232425262728292a2b2c2d2e2f" +
+				"303132333435363738393a3b3c3d3e3f",
+			serverFinishedHash: "404142434445464748494a4b4c4d4e4f" +
+				"505152535455565758595a5b5c5d5e5f",
+			applicationHash: "606162636465666768696a6b6c6d6e6f" +
+				"707172737475767778797a7b7c7d7e7f",
+			clientFinishedHash: "808182838485868788898a8b8c8d8e8f" +
+				"909192939495969798999a9b9c9d9e9f",
+			resumptionHash: "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf" +
+				"b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+			clientHandshakeSecret: "48834a5e86b1a984eaf5a77b8552e0b5" +
+				"1a0878fbfc8e8e4098331f2666e6c283",
+			serverHandshakeSecret: "74b4bd30abf8fb590f64801397eb7c4a" +
+				"4f1a7043b8a51b01b619d6288af8d639",
+			masterSecret: "219a76ca5664f6da265aaa2f1336525f" +
+				"b3db2c8b9a6da9e29b5fa7e4107d17e4",
+			clientApplication: "bce5f20cbbe8e905fb14f770a4476c12" +
+				"5f205e12f823535eccf19479da7600ef",
+			serverApplication: "4514b3035c3be36a4e51b693c3ffb44f" +
+				"4b07027afd2fa3d736675d6094c2a4e7",
+			nextClientApplication: "fed8175bac9818218674e05e9c22e5b0" +
+				"466a9e61bdec0ae657f61b058860a0a2",
+			nextServerApplication: "513bd66bc6b09c3f8a62865cf11bbebc" +
+				"987602633775cff8e521c0c34fff4ebf",
+			exporterMasterSecret: "432323faec5c4bb685a39a140564e901" +
+				"ec42f7bf3d2de56a874806661567dbb3",
+			resumptionMaster: "fcd8551edc0e575f85a61b92fb913765" +
+				"82b703d2d51c3e0f61e5f9cb2c779c68",
+			serverFinished: "08ede3f490fa46ce7f920594d96c5d65" +
+				"4a3b5d1bc58b84502394a7c55d8eeda5",
+			clientFinished: "8cdf48eafa26f1712fcdd4fd0ab2144b" +
+				"3df17d2a26ed6ba83fff410770f19607",
+		},
+		{
+			name:                    "sha384",
+			hash:                    sha512.New384,
+			keyAgreementSecret:      "000102030405060708090a0b0c0d0e0f" + "101112131415161718191a1b1c1d1e1f" + "202122232425262728292a2b2c2d2e2f",
+			handshakeTranscriptHash: "202122232425262728292a2b2c2d2e2f" + "303132333435363738393a3b3c3d3e3f" + "404142434445464748494a4b4c4d4e4f",
+			serverFinishedHash:      "404142434445464748494a4b4c4d4e4f" + "505152535455565758595a5b5c5d5e5f" + "606162636465666768696a6b6c6d6e6f",
+			applicationHash:         "606162636465666768696a6b6c6d6e6f" + "707172737475767778797a7b7c7d7e7f" + "808182838485868788898a8b8c8d8e8f",
+			clientFinishedHash:      "808182838485868788898a8b8c8d8e8f" + "909192939495969798999a9b9c9d9e9f" + "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+			resumptionHash:          "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf" + "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf" + "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+			clientHandshakeSecret:   "cc8f6bcd3db0cd04477c6084b3d3523c" + "da1cf2b28dfd354efbb26c002e66c651" + "d1730165a51ee1448f9b07f11713424e",
+			serverHandshakeSecret:   "87aa67663f33bc3300d19c8bef046946" + "3ad0b3b3150b97fa4df1adcef9fc785a" + "2a47a17f0dce9430029e16f7f0631094",
+			masterSecret:            "fa7b25f9a83b5117689a08098f4ab690" + "beeb5b2dfdac96ab9c8ea965e76ac2d7" + "5147b21ea1a1c71590f966d572da10c8",
+			clientApplication:       "6a2eb3acb47a5f9fa682079b120507d1" + "7ec650fef3c7c00a06b1fdea3b4a7e98" + "8752ab30a2378d6abf5fd965a0a8d74f",
+			serverApplication:       "f6eb012422f600a6d4a0a3a78a5baa8d" + "ebd71f30a20af15783046ff4cef28c47" + "69ae893afe65d718f8cff5eaad93b3f8",
+			nextClientApplication:   "13125f36b3eb73222446c3d99edf1fbc" + "a97e3d58a4261abfc5aada73f73e88eb" + "1cf38591b55474058e9446a91f491705",
+			nextServerApplication:   "34d5f36a5d86175e2b83dc1f8b97b2c" + "4ee32ce19cfed673a605eff7d059a8817" + "1c2416ba96876e99f05f5d92519defef",
+			exporterMasterSecret:    "69e9f076aaab9e68a16be160cfaa2235" + "6276bd51db9dc6db41f392e22874d6d0" + "0ead96a2d55939364f81517eed6909cb",
+			resumptionMaster:        "e49078972d79a1b8065f6f1eef58cce3" + "f07df2628b61e72770ea1bb19aae5004" + "9180e8fd06498cfe4e32d74ca184026b",
+			serverFinished:          "ebd4969113fd1c77ede80b0072d9f79f" + "31a8edea666a91596fedf00496d007f2" + "cbac3aa1a1914d6ec900a7f0d5c41f57",
+			clientFinished:          "feeaba4a756bed6b8534df7d47a9f425" + "1fe121785008de45de4535bf47b70b61" + "b6fff9d3400566f4a25df11b2eca3819",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			keyAgreementSecret := decodeRegressionHex(t, test.keyAgreementSecret)
+			handshakeHash := decodeRegressionHex(t, test.handshakeTranscriptHash)
+
+			schedule, err := deriveHandshakeKeySchedule(test.hash, nil, keyAgreementSecret, handshakeHash)
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.clientHandshakeSecret),
+				schedule.HandshakeTrafficSecrets.Client)
+			assert.Equal(t, decodeRegressionHex(t, test.serverHandshakeSecret),
+				schedule.HandshakeTrafficSecrets.Server)
+			assert.Equal(t, decodeRegressionHex(t, test.masterSecret), schedule.MasterSecret)
+
+			applicationHash := decodeRegressionHex(t, test.applicationHash)
+			application, err := deriveApplicationTrafficSecrets(test.hash, schedule.MasterSecret, applicationHash)
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.clientApplication), application.Client)
+			assert.Equal(t, decodeRegressionHex(t, test.serverApplication), application.Server)
+
+			nextClientApplication, err := deriveNextApplicationTrafficSecret(test.hash, application.Client)
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.nextClientApplication), nextClientApplication)
+
+			nextServerApplication, err := deriveNextApplicationTrafficSecret(test.hash, application.Server)
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.nextServerApplication), nextServerApplication)
+
+			exporter, err := deriveExporterMasterSecret(test.hash, schedule.MasterSecret, applicationHash)
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.exporterMasterSecret), exporter)
+
+			resumption, err := deriveResumptionMasterSecret(test.hash, schedule.MasterSecret, decodeRegressionHex(t, test.resumptionHash))
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.resumptionMaster), resumption)
+
+			serverFinished, err := finishedVerifyData(test.hash, schedule.HandshakeTrafficSecrets.Server, decodeRegressionHex(t, test.serverFinishedHash))
+			require.NoError(t, err)
+			expectedServerFinished := decodeRegressionHex(t, test.serverFinished)
+			assert.Equal(t, expectedServerFinished, serverFinished)
+			assert.NoError(t, verifyFinishedData(test.hash, schedule.HandshakeTrafficSecrets.Server, decodeRegressionHex(t, test.serverFinishedHash), expectedServerFinished))
+
+			clientFinished, err := finishedVerifyData(test.hash, schedule.HandshakeTrafficSecrets.Client, decodeRegressionHex(t, test.clientFinishedHash))
+			require.NoError(t, err)
+			expectedClientFinished := decodeRegressionHex(t, test.clientFinished)
+			assert.Equal(t, expectedClientFinished, clientFinished)
+			assert.NoError(t, verifyFinishedData(test.hash, schedule.HandshakeTrafficSecrets.Client, decodeRegressionHex(t, test.clientFinishedHash), expectedClientFinished))
+		})
+	}
+}
+
+func TestDeriveNextApplicationTrafficSecretErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		hash    func() hash.Hash
+		current []byte
+		err     error
+	}{
+		{
+			name: "missing hash function",
+			err:  dtlserrors.ErrKeyScheduleMissingHashFunction,
+		},
+		{
+			name: "nil hash",
+			hash: func() hash.Hash { return nil },
+			err:  dtlserrors.ErrKeyScheduleMissingHashFunction,
+		},
+		{
+			name:    "empty secret",
+			hash:    sha256.New,
+			current: nil,
+			err:     dtlserrors.ErrLengthMismatch,
+		},
+		{
+			name:    "short secret",
+			hash:    sha256.New,
+			current: make([]byte, sha256.Size-1),
+			err:     dtlserrors.ErrLengthMismatch,
+		},
+		{
+			name:    "long secret",
+			hash:    sha256.New,
+			current: make([]byte, sha256.Size+1),
+			err:     dtlserrors.ErrLengthMismatch,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := deriveNextApplicationTrafficSecret(test.hash, test.current)
+			assert.ErrorIs(t, err, test.err)
+		})
+	}
+}
+
+func decodeRegressionHex(t *testing.T, value string) []byte {
+	t.Helper()
+
+	decoded, err := hex.DecodeString(value)
+	require.NoError(t, err)
+
+	return decoded
+}
+
+func TestPSKKeySchedule(t *testing.T) {
+	psk := decodeRegressionHex(t, "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5")
+	dhe := decodeRegressionHex(t, "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	transcriptHash := sha256.Sum256([]byte("ClientHello...ServerHello"))
+
+	schedule, err := deriveHandshakeKeySchedule(sha256.New, psk, dhe, transcriptHash[:])
+	require.NoError(t, err)
+	// computed using OpenSSL.
+	assert.Equal(t, decodeRegressionHex(t, "69c0b082b9e8b4d0dd89066f4025f18bd943883af5bfc05237f10689a2b7f6bc"), schedule.MasterSecret)
+	master, err := deriveMasterSecretFromKeyAgreementSecret(sha256.New, psk, dhe)
+	require.NoError(t, err)
+	assert.Equal(t, schedule.MasterSecret, master)
+	traffic, err := deriveHandshakeTrafficSecrets(sha256.New, psk, dhe, transcriptHash[:])
+	require.NoError(t, err)
+	assert.Equal(t, schedule.HandshakeTrafficSecrets, traffic)
+
+	_, err = deriveHandshakeKeySchedule(sha256.New, psk, nil, transcriptHash[:])
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+}
+
+func TestEarlyKeyLogECHDecision(t *testing.T) {
+	for _, accepted := range []bool{true, false} {
+		t.Run(fmt.Sprintf("accepted=%t", accepted), func(t *testing.T) {
+			var log bytes.Buffer
+			cfg := testHandshakeConfig13(t)
+			cfg.KeyLogWriter = &log
+			cfg.ECHConfigList = []byte{1}
+			state := newTestState13(t, true)
+			state.CipherSuite = cfg.LocalCipherSuites[0]
+			var inner, outer handshake.Random
+			inner.RandomBytes[0] = 1
+			outer.RandomBytes[0] = 2
+			state.LocalRandom = inner
+			suite, err := recordProtectionCipherSuite(state)
+			require.NoError(t, err)
+			raw := decodeRegressionHex(t, "0100002c000000000000002cfefd000000000000000000000000000000000000000000000000000000000000000000000002130101000000")
+			psk := bytes.Repeat([]byte{0x42}, suite.HashFunc()().Size())
+			secret, err := DeriveEarlyTrafficSecret(suite.HashFunc(), psk, raw)
+			require.NoError(t, err)
+			require.NoError(t, InitEarlyRecordProtection(state, suite, psk, raw, cfg))
+			require.Empty(t, log.String())
+			require.Equal(t, secret, state.PendingEarlyKeyLog)
+			handshakeCtx := handshakeContext{state: state, cfg: cfg}
+			handshakeCtx.flushPendingEarlyKeyLog()
+			require.Empty(t, log.String())
+			state.ECH = &ech.ClientContext{}
+			handshakeCtx.flushPendingEarlyKeyLog()
+			require.Empty(t, log.String())
+			state.ECH.Accepted = accepted
+			state.ECH.Rejected = !accepted
+			if !accepted {
+				state.LocalRandom = outer
+			}
+			// Both HRR and rejection can discard early keys before logging.
+			state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
+			handshakeCtx.flushPendingEarlyKeyLog()
+			random := state.LocalRandom.MarshalFixed()
+			require.Equal(t, fmt.Sprintf("CLIENT_EARLY_TRAFFIC_SECRET %x %x\n", random, secret), log.String())
+			require.Empty(t, state.PendingEarlyKeyLog)
+			handshakeCtx.flushPendingEarlyKeyLog()
+			require.Equal(t, 1, bytes.Count(log.Bytes(), []byte("\n")))
+		})
+	}
+}

@@ -1,0 +1,326 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package state
+
+import (
+	"bytes"
+	"crypto"
+	"maps"
+	"sync"
+	"time"
+
+	"github.com/pion/dtls/v4/internal/ech"
+	"github.com/pion/dtls/v4/internal/negotiation"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
+)
+
+// PSK associates an offered identity state with its secret, hash, and binder label.
+//
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
+type PSK struct {
+	Ticket              *SessionTicket
+	Identity            []byte
+	IdentityHint        []byte
+	Secret              []byte
+	Hash                crypto.Hash
+	External            bool
+	ObfuscatedTicketAge uint32
+	PeerCertificates    [][]byte
+}
+
+// MaxConnectionIDs bounds both retained local aliases and peer spare IDs.
+// Issued aliases remain valid until close; reaching the limit stops issuance.
+// the spec doesn't specify a limit, 32 is a reasonable default for the pion
+// implementation, this limit should be configurable in the future.
+const MaxConnectionIDs = 32
+
+// CIDReceiveSet CID bytes and membership checks.
+type CIDReceiveSet struct {
+	mu  sync.RWMutex
+	ids map[string]struct{}
+}
+
+// Len reports the number of accepted local IDs.
+func (s *CIDReceiveSet) Len() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.ids)
+}
+
+// Values returns owned copies of the accepted connection IDs.
+func (s *CIDReceiveSet) Values() [][]byte {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := make([][]byte, 0, len(s.ids))
+	for id := range s.ids {
+		ids = append(ids, []byte(id))
+	}
+
+	return ids
+}
+
+// Contains reports whether cid is accepted on inbound records.
+func (s *CIDReceiveSet) Contains(cid []byte) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.ids[string(cid)]
+
+	return ok
+}
+
+// Add copies cid into the accepted set.
+func (s *CIDReceiveSet) Add(cid []byte) {
+	if len(cid) == 0 {
+		return
+	}
+	s.mu.Lock()
+	if s.ids == nil {
+		s.ids = make(map[string]struct{})
+	}
+	s.ids[string(cid)] = struct{}{}
+	s.mu.Unlock()
+}
+
+// Remove stops accepting cid.
+func (s *CIDReceiveSet) Remove(cid []byte) {
+	s.mu.Lock()
+	delete(s.ids, string(cid))
+	s.mu.Unlock()
+}
+
+// Clone returns an independent snapshot for certificate verification.
+func (s *CIDReceiveSet) Clone() *CIDReceiveSet {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return &CIDReceiveSet{ids: maps.Clone(s.ids)}
+}
+
+// Clear releases all accepted IDs.
+func (s *CIDReceiveSet) Clear() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	clear(s.ids)
+	s.mu.Unlock()
+}
+
+type TrafficSecrets struct {
+	Client []byte
+	Server []byte
+}
+
+type KeySchedule struct {
+	EarlySecret     []byte
+	HandshakeSecret []byte
+
+	// MasterSecret is TLS/DTLS 1.3's key-schedule master secret, not the
+	// DTLS 1.2 PRF master_secret.
+	MasterSecret []byte
+
+	HandshakeTraffic TrafficSecrets
+
+	ClientApplicationTrafficSecret0 []byte
+	ServerApplicationTrafficSecret0 []byte
+
+	ExporterMasterSecret   []byte
+	ResumptionMasterSecret []byte
+}
+
+// CIDState holds connection ID state negotiated for DTLS 1.3. RFC 9147
+// reuses the connection_id extension [1] and its directional semantics from
+// RFC 9146, Section 3 [2], and defines the DTLS 1.3 record encoding and CID
+// update messages in Sections 4.3 [3].
+//
+// Each endpoint advertises the CID it wants to receive:
+// Receive describes locally generated CIDs carried by the peer,
+// while Send describes	peer-generated CIDs carried by this endpoint.
+// A present, zero-length connection_id extension still negotiates CID support,
+// but disables CIDs in that direction.
+// Negotiated must not be inferred from either
+// CID length. [4]
+//
+// The initial CID values remain in Common so a dual-stack ClientHello can be
+// handed to DTLS 1.2 without losing its offer. The directional state here is
+// separate because an active DTLS 1.3 CID can later change through the
+// messages defined by RFC 9147, Section 9 [1].
+//
+// 1. https://datatracker.ietf.org/doc/html/rfc9147#section-9
+// 2. https://datatracker.ietf.org/doc/html/rfc9146.html#section-3
+// 3. https://datatracker.ietf.org/doc/html/rfc9147#section-4
+// 4. https://datatracker.ietf.org/doc/html/rfc9146.html#section-3
+type CIDState struct {
+	// Negotiated reports whether the connection_id extension was negotiated,
+	// including when one or both endpoints advertised a zero-length CID.
+	Negotiated bool
+	// Receive controls parsing and updating CIDs carried by the peer.
+	Receive CIDReceiveState
+	// Send controls encoding and updating CIDs carried by this endpoint.
+	Send CIDSendState
+}
+
+// CIDReceiveState describes locally generated CIDs carried in protected
+// records sent by the peer.
+type CIDReceiveState struct {
+	// IDs contains accepted local CIDs.
+	IDs *CIDReceiveSet
+	// Expected reports whether protected peer datagrams must contain a CID.
+	// CID-less unified records are allowed alongside a CID-carrying record.
+	// Epoch-zero plaintext records have no CID field.
+	Expected bool
+	// Length is the number of CID bytes to parse after the C bit. DTLS 1.3
+	// records do not encode this lengt
+	Length int
+	// CanSendNewConnectionID reports whether this endpoint may send
+	// NewConnectionID. RFC 9147, Section 9 forbids that message when this
+	// endpoint negotiated receiving an empty CID.
+	CanSendNewConnectionID bool
+}
+
+// CIDSendState describes peer-generated CIDs carried in protected records
+// sent by this endpoint.
+type CIDSendState struct {
+	// Spares owns peer IDs available for future selection, in issuance order.
+	Spares [][]byte
+	// UseCID reports whether records sent to the peer must set the C bit in the
+	// DTLS 1.3 unified header and carry Active.
+	UseCID bool
+	// Active is the peer-provided CID currently used for outgoing records. It
+	// may diverge from Common.RemoteConnectionID after NewConnectionID.
+	Active []byte
+}
+
+// State13 holds state that is meaningful only for DTLS 1.3.
+type State13 struct {
+	*Common
+	ECH              *ech.ClientContext
+	ECHServer        *ech.ServerContext
+	EarlyDataStatus  EarlyDataStatus
+	EarlyDataLimit   uint32
+	EarlyDataBytes   uint64
+	EarlyDataPSK     *PSK
+	EarlyClientHello []byte
+
+	// PendingEarlyKeyLog retains the early traffic secret until ECH selects the client random.
+	PendingEarlyKeyLog []byte
+
+	CID         CIDState
+	KeySchedule KeySchedule
+	TrafficKeys *TrafficKeyState
+
+	// ReplayCutoff is the highest rejected record sequence number per epoch.
+	ReplayCutoff map[uint64]uint64
+
+	// KeyAgreementSecret is the ECDHE or hybrid shared secret that feeds the
+	// TLS 1.3 HKDF key schedule, or Hash.length zero bytes for psk_ke.
+	KeyAgreementSecret []byte
+
+	// LocalPSKs retains the client offers across retries. PSK is set after selection.
+	LocalPSKs   []PSK
+	PSK         []byte
+	PSKIdentity uint16
+	PSKOnly     bool // Negotiated psk_ke, without a key share.
+
+	SelectedGroup elliptic.Curve
+
+	LocalKeypair  *elliptic.Keypair
+	LocalKeypairs map[elliptic.Curve]*elliptic.Keypair
+
+	LocalKeyEntries []extension13.KeyShareEntry
+
+	RemoteKeyEntries    []extension13.KeyShareEntry
+	HasRemoteKeyEntries bool
+	RemoteGroups        []elliptic.Curve
+
+	Cookie                []byte
+	HelloRetryRequest     negotiation.RetryRequest
+	HandshakeSendSequence int
+	HandshakeRecvSequence int
+
+	RemoteSignatureSchemes     []signaturehash.Algorithm // signature_algorithms from peer
+	RemoteCertSignatureSchemes []signaturehash.Algorithm // signature_algorithms_cert from peer
+
+	// RemoteCertificateRequest is the authenticated and decoded request
+	// kept for the client's final flight.
+	RemoteCertificateRequest *handshake13.MessageCertificateRequest
+}
+
+// HandshakeSequences snapshots the counters while post-handshake messages advance them.
+func (s *State13) HandshakeSequences() (send, receive int) {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	return s.HandshakeSendSequence, s.HandshakeRecvSequence
+}
+
+// AdvanceHandshakeRecvSequence marks a post-handshake message as processed.
+func (s *State13) AdvanceHandshakeRecvSequence() {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+	s.HandshakeRecvSequence++
+}
+
+// ShouldWrapConnectionID reports whether outgoing records should use the
+// legacy DTLS 1.2 CID record encoding.
+func (*State13) ShouldWrapConnectionID() bool {
+	return false
+}
+
+// ResetConnectionIDs clears the connection IDs and CID state.
+func (s *State13) ResetConnectionIDs() { s.CommitNegotiatedExtensions(nil) }
+
+// CommitNegotiatedExtensions applies a fully validated extension decision.
+func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID) {
+	s.Common.CommitNegotiatedExtensions(decision)
+	if decision == nil {
+		s.CID = CIDState{}
+
+		return
+	}
+	localCID, remoteCID := s.LocalConnectionID(), s.RemoteConnectionID
+	s.CID = CIDState{Negotiated: true, Receive: CIDReceiveState{Expected: len(localCID) > 0, Length: len(localCID), CanSendNewConnectionID: len(localCID) > 0}, Send: CIDSendState{UseCID: len(remoteCID) > 0, Active: bytes.Clone(remoteCID)}}
+	s.CID.Receive.IDs = &CIDReceiveSet{}
+	s.CID.Receive.IDs.Add(localCID)
+}
+
+// SessionTicket holds DTLS 1.3 ticket metadata alongside its identity and PSK.
+type SessionTicket struct {
+	NegotiatedProtocol string
+	MaxEarlyDataSize   uint32 // Maximum early-data bytes; zero disables early data.
+	CipherSuite        cryptosuite.ID
+	Lifetime           uint32 // Seconds from CreatedAt.
+	AgeAdd             uint32
+	Nonce              []byte
+	CreatedAt          time.Time
+	ServerName         string
+	PeerCertificates   [][]byte
+}
+
+// EarlyDataStatus tracks client offers and the server's acceptance decision.
+type EarlyDataStatus uint8
+
+const (
+	EarlyDataNone EarlyDataStatus = iota
+	EarlyDataReady
+	EarlyDataAccepted
+	EarlyDataRejected
+)

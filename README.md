@@ -1,0 +1,212 @@
+<h1 align="center">
+  <br>
+  Pion DTLS
+  <br>
+</h1>
+<h4 align="center">A Go implementation of DTLS</h4>
+<p align="center">
+  <a href="https://pion.ly"><img src="https://img.shields.io/badge/pion-dtls-gray.svg?longCache=true&colorB=brightgreen" alt="Pion DTLS"></a>
+  <a href="https://sourcegraph.com/github.com/pion/dtls"><img src="https://sourcegraph.com/github.com/pion/dtls/-/badge.svg" alt="Sourcegraph Widget"></a>
+  <a href="https://discord.gg/PngbdqpFbt"><img src="https://img.shields.io/badge/join-us%20on%20discord-gray.svg?longCache=true&logo=discord&colorB=brightblue" alt="join us on Discord"></a> <a href="https://bsky.app/profile/pion.ly"><img src="https://img.shields.io/badge/follow-us%20on%20bluesky-gray.svg?longCache=true&logo=bluesky&colorB=brightblue" alt="Follow us on Bluesky"></a>
+  <br>
+  <img alt="GitHub Workflow Status" src="https://img.shields.io/github/actions/workflow/status/pion/dtls/test.yaml">
+  <a href="https://pkg.go.dev/github.com/pion/dtls/v4"><img src="https://pkg.go.dev/badge/github.com/pion/dtls/v4.svg" alt="Go Reference"></a>
+  <a href="https://codecov.io/gh/pion/dtls"><img src="https://codecov.io/gh/pion/dtls/branch/master/graph/badge.svg" alt="Coverage Status"></a>
+  <a href="https://goreportcard.com/report/github.com/pion/dtls/v4"><img src="https://goreportcard.com/badge/github.com/pion/dtls/v4" alt="Go Report Card"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
+<br>
+
+Native [DTLS 1.2][rfc6347] and [DTLS 1.3][rfc9147] implementation in the Go
+programming language.
+
+A long term goal is a professional security review, and maybe an inclusion in stdlib.
+
+### RFCs
+#### Implemented
+- **RFC 6347**: [Datagram Transport Layer Security Version 1.2][rfc6347]
+- **RFC 9146**: [Connection Identifier for DTLS 1.2][rfc9146]
+- **RFC 9147**: [The Datagram Transport Layer Security (DTLS) Protocol Version 1.3][rfc9147]
+- **RFC 9849**: [TLS Encrypted Client Hello][rfc9849]
+- **RFC 9853**: [Return Routability Check for DTLS 1.2 and 1.3][rfc9853]
+- **RFC 5705**: [Keying Material Exporters for Transport Layer Security (TLS)][rfc5705]
+- **RFC 7627**: [Transport Layer Security (TLS) - Session Hash and Extended Master Secret Extension][rfc7627]
+- **RFC 7301**: [Transport Layer Security (TLS) - Application-Layer Protocol Negotiation Extension][rfc7301]
+
+[rfc5289]: https://tools.ietf.org/html/rfc5289
+[rfc5487]: https://tools.ietf.org/html/rfc5487
+[rfc5489]: https://tools.ietf.org/html/rfc5489
+[rfc5705]: https://tools.ietf.org/html/rfc5705
+[rfc6347]: https://tools.ietf.org/html/rfc6347
+[rfc6655]: https://tools.ietf.org/html/rfc6655
+[rfc7301]: https://tools.ietf.org/html/rfc7301
+[rfc7627]: https://tools.ietf.org/html/rfc7627
+[rfc7905]: https://tools.ietf.org/html/rfc7905
+[rfc8422]: https://tools.ietf.org/html/rfc8422
+[rfc8446]: https://tools.ietf.org/html/rfc8446
+[rfc9146]: https://tools.ietf.org/html/rfc9146
+[rfc9147]: https://tools.ietf.org/html/rfc9147
+[rfc9849]: https://tools.ietf.org/html/rfc9849
+[rfc9853]: https://tools.ietf.org/html/rfc9853
+
+### Features
+
+Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes.
+
+#### Current features
+
+* DTLS 1.2 and DTLS 1.3 client/server
+* Key Exchange via ECDHE(curve25519, nistp256, nistp384) and PSK
+* DTLS 1.3 external PSK with `psk_ke` and `psk_dhe_ke`, supporting SHA-256 and SHA-384
+* DTLS 1.3 offers multiple PSK identities per handshake for server selection
+* Packet loss and re-ordering is handled during handshaking
+* Key export ([RFC 5705][rfc5705])
+* DTLS 1.2 and DTLS 1.3 connection state serialization and restoration with `Resume`
+* DTLS 1.3 session ticket resumption and optional 0-RTT early data
+* DTLS 1.3 Encrypted Client Hello (ECH), configured with `WithECH` ([RFC 9849][rfc9849])
+* Extended Master Secret extension ([RFC 7627][rfc7627])
+* ALPN extension ([RFC 7301][rfc7301])
+* Connection IDs (CIDs) for DTLS 1.2 and DTLS 1.3, including listener routing across peer address changes
+* DTLS 1.3 post-handshake CID updates and spare CIDs for path migration
+* Return Routability Check (RRC) for DTLS 1.2 and DTLS 1.3 ([RFC 9853][rfc9853])
+* DTLS 1.3 local path probing and migration with `Conn.AddPath`, `Path.Probe`, and `Path.Switch`
+* DTLS 1.3 traffic-key updates with `Conn.UpdateKeys`
+
+#### Supported ciphers
+
+##### DTLS 1.3: Certificate & PSK
+
+* TLS_AES_128_GCM_SHA256 ([RFC 8446][rfc8446])
+* TLS_AES_256_GCM_SHA384 ([RFC 8446][rfc8446])
+* TLS_CHACHA20_POLY1305_SHA256 ([RFC 8446][rfc8446])
+
+##### DTLS 1.2: ECDHE
+
+* TLS_ECDHE_ECDSA_WITH_AES_128_CCM ([RFC 6655][rfc6655])
+* TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
+* TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ([RFC 5289][rfc5289])
+* TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 ([RFC 5289][rfc5289])
+* TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ([RFC 5289][rfc5289])
+* TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 ([RFC 5289][rfc5289])
+* TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA ([RFC 8422][rfc8422])
+* TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA ([RFC 8422][rfc8422])
+* TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
+* TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
+
+##### DTLS 1.2: PSK
+
+* TLS_PSK_WITH_AES_128_CCM ([RFC 6655][rfc6655])
+* TLS_PSK_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
+* TLS_PSK_WITH_AES_256_CCM_8 ([RFC 6655][rfc6655])
+* TLS_PSK_WITH_AES_128_GCM_SHA256 ([RFC 5487][rfc5487])
+* TLS_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5487][rfc5487])
+* TLS_PSK_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
+
+##### DTLS 1.2: ECDHE & PSK
+
+* TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5489][rfc5489])
+* TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
+
+#### Excluded Features
+* DTLS 1.0
+* Renegotiation
+* Compression
+
+#### Pion DTLS
+
+The library enables DTLS 1.2 and DTLS 1.3 by default, preferring DTLS 1.3.
+Use `WithMaxVersion(protocol.Version1_2)` to restrict a connection to DTLS 1.2,
+or `WithMinVersion(protocol.Version1_3)` to require DTLS 1.3.
+
+For a DTLS server that listens on 127.0.0.1:4444
+```sh
+go run examples/listen/selfsign/main.go
+```
+
+For a DTLS client that connects to 127.0.0.1:4444
+```sh
+go run examples/dial/selfsign/main.go
+```
+
+#### OpenSSL
+Pion DTLS can connect to itself and OpenSSL.
+```
+  // Generate a certificate
+  openssl ecparam -out key.pem -name prime256v1 -genkey
+  openssl req -new -sha256 -key key.pem -out server.csr
+  openssl x509 -req -sha256 -days 365 -in server.csr -signkey key.pem -out cert.pem
+
+  // Use with examples/dial/selfsign/main.go
+  openssl s_server -dtls1_2 -cert cert.pem -key key.pem -accept 4444
+
+  // Use with examples/listen/selfsign/main.go
+  openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -debug -cert cert.pem -key key.pem
+```
+
+### DTLS 1.3 resumption and early data
+
+DTLS 1.3 supports session ticket resumption with optional 0-RTT early data.
+Resumption only allows `psk_dhe_ke` (PSK with ephemeral ECDHE).
+
+The [resumption example](examples/resumption-dtls13) demonstrate a certificate-authenticated
+first connection, encrypted session storage, and subsequent connections with resumption
+and optional early data. See its README for run instructions and the session store's
+single-use `Claim` requirement for 0-RTT.
+
+The `State`/`Resume` API also supports restoring established DTLS 1.3
+connections without a new handshake. See [`Resume`](resume.go).
+### Using with PSK
+
+DTLS 1.3 supports external PSKs with `psk_ke` (PSK-only) and `psk_dhe_ke`
+(PSK with ephemeral ECDHE), using SHA-256 or SHA-384. Clients can offer multiple
+PSK identities per handshake for the server to select from.
+
+The PSK examples use DTLS 1.3 by default, with `TLS_AES_128_GCM_SHA256`.
+
+#### Pion DTLS
+```sh
+go run examples/listen/psk/main.go
+```
+
+```sh
+go run examples/dial/psk/main.go
+```
+
+To use DTLS 1.2 with `TLS_PSK_WITH_AES_128_CCM_8`, pass `-dtls12` to both:
+
+```sh
+go run examples/listen/psk/main.go -dtls12
+go run examples/dial/psk/main.go -dtls12
+```
+
+#### OpenSSL
+
+Run the Pion example with `-dtls12` when using these OpenSSL DTLS 1.2 commands.
+
+```
+  // Use with examples/dial/psk/main.go -dtls12
+  openssl s_server -dtls1_2 -accept 4444 -nocert -psk abc123 -cipher PSK-AES128-CCM8
+
+  // Use with examples/listen/psk/main.go -dtls12
+  openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -psk abc123 -cipher PSK-AES128-CCM8
+```
+
+### Community
+Pion has an active community on the [Discord](https://discord.gg/PngbdqpFbt).
+
+Follow the [Pion Bluesky](https://bsky.app/profile/pion.ly) or [Pion Twitter](https://twitter.com/_pion) for project updates and important WebRTC news.
+
+We are always looking to support **your projects**. Please reach out if you have something to build!
+If you need commercial support or don't want to use public methods you can contact us at [team@pion.ly](mailto:team@pion.ly)
+
+### Contributing
+Check out the [contributing wiki](https://github.com/pion/webrtc/wiki/Contributing) to join the group of amazing people making this project possible
+
+### Funding
+<a href="https://nlnet.nl/"><img src="https://nlnet.nl/logo/banner.svg" alt="NLnet foundation logo" width="200"></a>
+<a href="https://nlnet.nl/commonsfund/"><img src="https://nlnet.nl/image/logos/NGI0Core_tag.svg" alt="NLnet foundation logo" width="200"></a>
+
+The DTLS 1.3 implementation in this project is funded through the [NGI0 Commons Fund](https://nlnet.nl/commonsfund), a fund established by [NLnet](https://nlnet.nl/) with financial support from the European Commission's [Next Generation Internet](https://ngi.eu/) programme, under the aegis of [DG Communications Networks, Content and Technology](https://commission.europa.eu/about-european-commission/departments-and-executive-agencies/communications-networks-content-and-technology_en) under grant agreement No [101135429](https://cordis.europa.eu/project/id/101135429). Additional funding is made available by the [Swiss State Secretariat for Education, Research and Innovation](https://www.sbfi.admin.ch/sbfi/en/home.html) (SERI). Learn more on the [NLnet project page](https://nlnet.nl/project/PION-DTLS1.3/).
+
+### License
+MIT License - see [LICENSE](LICENSE) for full text

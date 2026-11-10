@@ -1,0 +1,135 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package state
+
+import (
+	"bytes"
+	"maps"
+	"slices"
+
+	"github.com/pion/dtls/v4/internal/util"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
+)
+
+// Clone13ForVerification returns a DTLS 1.3 state snapshot containing the
+// certificates from the flight being verified.
+func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 {
+	common := &Common{
+		PeerCertificates: util.CloneByteSlices(peerCertificates),
+		LocalVersion:     protocol.Version1_3,
+	}
+	if state == nil || state.Common == nil {
+		return &State13{Common: common}
+	}
+
+	state.sequenceMu.Lock()
+	common.LocalSequenceNumber = maps.Clone(state.LocalSequenceNumber)
+	common.RemoteSequenceNumber = maps.Clone(state.RemoteSequenceNumber)
+	common.highestRemoteEpoch = state.highestRemoteEpoch
+	common.exhaustedLocalEpoch = maps.Clone(state.exhaustedLocalEpoch)
+	state.sequenceMu.Unlock()
+	common.LocalRandom = state.LocalRandom
+	common.RemoteRandom = state.RemoteRandom
+	common.CipherSuite = state.CipherSuite
+	common.IdentityHint = bytes.Clone(state.IdentityHint)
+	common.SessionID = bytes.Clone(state.SessionID)
+	common.NegotiatedProtocol = state.NegotiatedProtocol
+	common.RemoteSRTPMasterKeyIdentifier = bytes.Clone(state.RemoteSRTPMasterKeyIdentifier)
+	common.RemoteConnectionID = bytes.Clone(state.RemoteConnectionID)
+	common.LocalCIDOffered = state.LocalCIDOffered
+	common.RemoteCIDOffered = state.RemoteCIDOffered
+	common.RRCNegotiated = state.RRCNegotiated
+	common.IsClient = state.IsClient
+	common.ServerName = state.ServerName
+	common.ECHAccepted = state.ECHAccepted
+	common.PeerSupportedProtocols = slices.Clone(state.PeerSupportedProtocols)
+	common.RemoteVersions = slices.Clone(state.RemoteVersions)
+	if state.LocalVersion != 0 {
+		common.LocalVersion = state.LocalVersion
+	}
+	common.SetLocalEpoch(state.LocalEpoch())
+	common.SetRemoteEpoch(state.RemoteEpoch())
+	common.SetSRTPProtectionProfile(state.SRTPProtectionProfile())
+	if localCID := state.LocalConnectionID(); localCID != nil {
+		common.SetLocalConnectionID(bytes.Clone(localCID))
+	}
+
+	cid := state.CID
+	cid.Receive.IDs = state.CID.Receive.IDs.Clone()
+	cid.Send = state.CID.Send.Clone()
+
+	psks := slices.Clone(state.LocalPSKs)
+	for i := range psks {
+		if psks[i].Ticket != nil {
+			ticket := *psks[i].Ticket
+			psks[i].Ticket = &ticket
+		}
+		psks[i].Identity = bytes.Clone(psks[i].Identity)
+		psks[i].IdentityHint = bytes.Clone(psks[i].IdentityHint)
+		psks[i].Secret = bytes.Clone(psks[i].Secret)
+		psks[i].PeerCertificates = util.CloneByteSlices(psks[i].PeerCertificates)
+	}
+
+	return &State13{
+		Common:                     common,
+		CID:                        cid,
+		KeySchedule:                cloneKeySchedule(state.KeySchedule),
+		TrafficKeys:                state.TrafficKeys.Clone(),
+		ReplayCutoff:               maps.Clone(state.ReplayCutoff),
+		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
+		LocalPSKs:                  psks,
+		PSK:                        bytes.Clone(state.PSK),
+		PSKIdentity:                state.PSKIdentity,
+		PSKOnly:                    state.PSKOnly,
+		SelectedGroup:              state.SelectedGroup,
+		LocalKeyEntries:            cloneKeyShareEntries(state.LocalKeyEntries),
+		RemoteKeyEntries:           cloneKeyShareEntries(state.RemoteKeyEntries),
+		HasRemoteKeyEntries:        state.HasRemoteKeyEntries,
+		RemoteGroups:               slices.Clone(state.RemoteGroups),
+		Cookie:                     bytes.Clone(state.Cookie),
+		HandshakeSendSequence:      state.HandshakeSendSequence,
+		HandshakeRecvSequence:      state.HandshakeRecvSequence,
+		RemoteSignatureSchemes:     slices.Clone(state.RemoteSignatureSchemes),
+		RemoteCertSignatureSchemes: slices.Clone(state.RemoteCertSignatureSchemes),
+	}
+}
+
+func cloneKeyShareEntries(entries []extension13.KeyShareEntry) []extension13.KeyShareEntry {
+	cloned := make([]extension13.KeyShareEntry, len(entries))
+	for i := range entries {
+		cloned[i] = entries[i]
+		cloned[i].KeyExchange = bytes.Clone(entries[i].KeyExchange)
+	}
+
+	return cloned
+}
+
+func cloneKeySchedule(in KeySchedule) KeySchedule {
+	return KeySchedule{
+		EarlySecret:                     bytes.Clone(in.EarlySecret),
+		HandshakeSecret:                 bytes.Clone(in.HandshakeSecret),
+		MasterSecret:                    bytes.Clone(in.MasterSecret),
+		HandshakeTraffic:                cloneTrafficSecrets(in.HandshakeTraffic),
+		ClientApplicationTrafficSecret0: bytes.Clone(in.ClientApplicationTrafficSecret0),
+		ServerApplicationTrafficSecret0: bytes.Clone(in.ServerApplicationTrafficSecret0),
+		ExporterMasterSecret:            bytes.Clone(in.ExporterMasterSecret),
+		ResumptionMasterSecret:          bytes.Clone(in.ResumptionMasterSecret),
+	}
+}
+
+func cloneTrafficSecrets(in TrafficSecrets) TrafficSecrets {
+	return TrafficSecrets{
+		Client: bytes.Clone(in.Client),
+		Server: bytes.Clone(in.Server),
+	}
+}
+
+// Clone returns an independent copy of the peer's active and spare connection IDs.
+func (s CIDSendState) Clone() CIDSendState {
+	s.Active = bytes.Clone(s.Active)
+	s.Spares = util.CloneByteSlices(s.Spares)
+
+	return s
+}

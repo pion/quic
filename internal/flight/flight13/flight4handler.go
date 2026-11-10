@@ -1,0 +1,356 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package flight13
+
+import (
+	"bytes"
+	"context"
+	"crypto"
+	"slices"
+
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/negotiation"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/prf"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
+)
+
+// flight4Parse processes the client's protected final flight. The parser is
+// keyed by the server's current flight (Flight 4), even tho the messages on
+// the wire are the client's Flight 5.
+func flight4Parse(
+	_ context.Context,
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) (Flight, *alert.Alert, error) {
+	protectedFlight := pullProtectedHandshakeFlight(
+		flightCtx.cache,
+		[]dtlsflight.HandshakeCachePullRule{
+			{Typ: handshake.TypeCertificate, Epoch: EpochHandshake, IsClient: true, Optional: true},
+			{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: true, Optional: true},
+			{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: true, Optional: false},
+		},
+		flightCtx.state.HandshakeRecvSequence,
+	)
+	if !protectedFlight.ready {
+		return 0, nil, nil
+	}
+	if protectedFlight.failure != nil {
+		return 0, protectedFlight.failure.alert, protectedFlight.failure.err
+	}
+
+	if flightCtx.protectedHandshakeHandler == nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, protectedFlight.items); err != nil {
+		failure := protectedFlightParseFailure(err)
+
+		return 0, failure.alert, failure.err
+	}
+	flightCtx.state.HandshakeRecvSequence = protectedFlight.nextHandshakeSequence
+
+	// Returning the current flight marks the server's last receive flight.
+	return Flight4, nil, nil
+}
+
+func selectClientKeyShare(
+	state *dtlsstate.State13,
+	cfg *dtlsconfig.HandshakeConfig,
+) bool {
+	selectedGroup, ok := preferredClientGroup(state, cfg)
+	if !ok {
+		return false
+	}
+	state.SelectedGroup = selectedGroup
+
+	return true
+}
+
+func generateClientKeyShareSecret(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) *clientHelloExtensionFailure {
+	selectedGroup, ok := preferredClientGroup(state, cfg)
+	if !ok {
+		if state.RemoteGroups != nil {
+			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
+		}
+
+		return nil
+	}
+	state.SelectedGroup = selectedGroup
+
+	selectedEntry, ok := clientKeyShareForGroup(state, selectedGroup)
+	if !ok {
+		return newClientHelloExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
+	}
+
+	if needsClientKeypair(state) {
+		keypair, err := elliptic.GenerateKeypairForPeer(state.SelectedGroup, selectedEntry.KeyExchange)
+		if err != nil {
+			return newClientHelloExtensionFailure(alert.IllegalParameter, err)
+		}
+		state.LocalKeypair = keypair
+	}
+
+	keyAgreementSecret, err := prf.PreMasterSecret(selectedEntry.KeyExchange, state.LocalKeypair.PrivateKey, state.SelectedGroup)
+	if err != nil {
+		return newClientHelloExtensionFailure(alert.IllegalParameter, err)
+	}
+	state.KeyAgreementSecret = keyAgreementSecret
+
+	return nil
+}
+
+func matchingClientKeyShare(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) (extension13.KeyShareEntry, bool) {
+	selectedGroup, ok := preferredClientGroup(state, cfg)
+	if !ok {
+		return extension13.KeyShareEntry{}, false
+	}
+
+	return clientKeyShareForGroup(state, selectedGroup)
+}
+
+func preferredClientGroup(
+	state *dtlsstate.State13,
+	cfg *dtlsconfig.HandshakeConfig,
+) (elliptic.Curve, bool) {
+	if state.RemoteGroups == nil {
+		return 0, false
+	}
+
+	for _, group := range cfg.EllipticCurves {
+		if slices.Contains(state.RemoteGroups, group) {
+			return group, true
+		}
+	}
+
+	return 0, false
+}
+
+func clientKeyShareForGroup(
+	state *dtlsstate.State13,
+	group elliptic.Curve,
+) (extension13.KeyShareEntry, bool) {
+	if !state.HasRemoteKeyEntries {
+		return extension13.KeyShareEntry{}, false
+	}
+	for _, entry := range state.RemoteKeyEntries {
+		if entry.Group == group {
+			return entry, true
+		}
+	}
+
+	return extension13.KeyShareEntry{}, false
+}
+
+func needsClientKeypair(state *dtlsstate.State13) bool {
+	return state.LocalKeypair == nil || state.LocalKeypair.Curve != state.SelectedGroup || state.SelectedGroup == elliptic.X25519MLKEM768
+}
+
+func flight4Generate(
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	state := flightCtx.state
+	cfg := flightCtx.cfg
+
+	if state.CipherSuite == nil {
+		return nil, nil, dtlserrors.ErrCipherSuiteUnset
+	}
+	if !state.PSKOnly && state.LocalKeypair == nil {
+		return nil, nil, dtlserrors.ErrServerKeyShareMissing
+	}
+
+	cipherSuiteID := uint16(state.CipherSuite.ID())
+	serverHelloExtensions := []extension.Value{
+		&extension13.SelectedVersion{
+			Version: protocol.Version1_3,
+		},
+	}
+	if !state.PSKOnly {
+		serverHelloExtensions = append(serverHelloExtensions, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: state.LocalKeypair.Curve, KeyExchange: state.LocalKeypair.PublicKey}})
+	}
+	if len(state.PSK) != 0 {
+		serverHelloExtensions = append(serverHelloExtensions, &extension13.SelectedPSK{Identity: state.PSKIdentity})
+	}
+	offer := state.RemoteClientHelloSnapshots.Current()
+	srtpDecision, err := negotiation.NegotiateSRTP(offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier)
+	if err != nil {
+		return nil, nil, err
+	}
+	serverHelloExtensions, err = appendServerConnectionID(flightCtx, offer, serverHelloExtensions)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	serverHelloMessage := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: state.LocalRandom, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: serverHelloExtensions}
+	serverHelloMessage, err = finalizeServerHello(flightCtx, serverHelloMessage)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	state.LocalRandom = serverHelloMessage.Random
+	if err = flightCtx.confirmECH(serverHelloMessage); err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	decision := negotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
+
+	serverHello := &dtlsflight.Outbound{
+		Content: &handshake.Handshake{Message: serverHelloMessage},
+	}
+
+	return generateProtectedServerFlight(flightCtx, serverHello, decision, srtpDecision)
+}
+
+func finalizeServerHello(flightCtx *handshakeContext, message *handshake.MessageServerHello) (*handshake.MessageServerHello, error) {
+	cfg := flightCtx.cfg
+	message, err := dtlsflight.FinalizeServerHello(message, cfg.ServerHelloMessageHook,
+		flightCtx.state.RemoteClientHelloSnapshots.Current(), cfg.EnableRRC)
+	if err != nil {
+		return nil, err
+	}
+	if err := dtlsflight.ValidateHookedConnectionIDLength(message.Extensions, cfg, cfg.ServerHelloMessageHook != nil); err != nil {
+		return nil, err
+	}
+
+	return message, nil
+}
+
+func generateProtectedServerFlight(flightCtx *handshakeContext, serverHello *dtlsflight.Outbound, decision *negotiation.ConnectionID, srtpDecision negotiation.SRTPDecision) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
+	var err error
+	encryptedExtensionsList := []extension.Value{}
+	if state.NegotiatedProtocol != "" {
+		encryptedExtensionsList = append(encryptedExtensionsList, &extension.ALPNSelection{Protocol: state.NegotiatedProtocol})
+	}
+	if state.EarlyDataStatus == dtlsstate.EarlyDataAccepted {
+		encryptedExtensionsList = append(encryptedExtensionsList, &extension13.EarlyData{})
+	}
+	if srtpDecision.ProtectionProfile != 0 {
+		encryptedExtensionsList = append(encryptedExtensionsList, &extension.SRTPSelection{ProtectionProfile: srtpDecision.ProtectionProfile, MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier)})
+	}
+	encryptedExtensionsList, err = flightCtx.appendECHRetryConfigs(encryptedExtensionsList)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	messageExtensions := handshake.MessageEncryptedExtensions{}
+	messageExtensions.Extensions = encryptedExtensionsList
+	encryptedExtensions := HandshakePacket(&messageExtensions)
+
+	pkts := []*dtlsflight.Outbound{
+		serverHello,
+		encryptedExtensions,
+	}
+	if len(state.PSK) == 0 {
+		certificatePackets, dtlsAlert, err := serverCertificatePackets(state, cfg)
+		if err != nil {
+			return nil, dtlsAlert, err
+		}
+		pkts = append(pkts, certificatePackets...)
+	}
+	pkts = append(pkts, HandshakePacket(&handshake.MessageFinished{}))
+	state.CommitNegotiatedExtensions(decision)
+	dtlsflight.CommitSRTP(state.Common, srtpDecision)
+
+	return pkts, nil, nil
+}
+
+func appendServerConnectionID(flightCtx *handshakeContext, offer negotiation.ClientHelloSnapshot, extensions []extension.Value) ([]extension.Value, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
+	if cfg.ConnectionIDGenerator != nil && offer.Offered(extension.TypeConnectionID) {
+		localCID := state.LocalConnectionID()
+		if !state.CID.Negotiated {
+			var err error
+			localCID, err = cfg.GenerateConnectionID()
+			if err != nil {
+				return nil, err
+			}
+			localCID = bytes.Clone(localCID)
+		}
+		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, localCID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
+	}
+
+	return extensions, nil
+}
+
+func serverCertificatePackets(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
+	}
+	if certificate == nil || len(certificate.Certificate) == 0 {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
+			dtlserrors.ErrNoCertificates
+	}
+
+	signer, ok := certificate.PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
+			dtlserrors.ErrInvalidPrivateKey
+	}
+
+	commonSignatureSchemes := make([]signaturehash.Algorithm, 0, len(state.RemoteSignatureSchemes))
+	for _, remote := range state.RemoteSignatureSchemes {
+		if slices.Contains(cfg.LocalSignatureSchemes, remote) {
+			commonSignatureSchemes = append(commonSignatureSchemes, remote)
+		}
+	}
+
+	signatureScheme, err := signaturehash.SelectSignatureScheme(
+		commonSignatureSchemes,
+		signer,
+		protocol.Version1_3,
+	)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
+	}
+
+	var pkts []*dtlsflight.Outbound
+	if cfg.ClientAuth > dtlsconfig.NoClientCert {
+		pkts = append(pkts, HandshakePacket(serverCertificateRequest(cfg)))
+	}
+	pkts = append(pkts,
+		HandshakePacket(&handshake13.MessageCertificate{
+			CertificateList: certificateEntries(certificate.Certificate),
+		}),
+		CertificateVerifyPacket(
+			&handshake.MessageCertificateVerify{
+				HashAlgorithm:      signatureScheme.Hash,
+				SignatureAlgorithm: signatureScheme.Signature,
+			},
+			signer,
+		),
+	)
+
+	return pkts, nil, nil
+}
+
+func serverCertificateRequest(cfg *dtlsconfig.HandshakeConfig) handshake.Message {
+	// RFC 8446 Section 4.3.2 requires signature_algorithms in the request.
+	// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
+	// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.3.2
+	certificateRequestExtensions := []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)}}
+	if cfg.ClientCAs != nil {
+		certificateRequestExtensions = append(certificateRequestExtensions, &extension13.CertificateAuthorities{
+			// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR
+			// because cert does not come from SystemCertPool and it's ok if certificate
+			// authorities is empty.
+			Authorities: cfg.ClientCAs.Subjects(),
+		})
+	}
+	m := handshake13.MessageCertificateRequest{}
+	m.Extensions = certificateRequestExtensions
+	var message handshake.Message = &m
+	if cfg.CertificateRequestMessageHook != nil {
+		message = cfg.CertificateRequestMessageHook(message)
+	}
+
+	return message
+}

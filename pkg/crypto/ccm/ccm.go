@@ -1,0 +1,250 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+// Package ccm implements a CCM, Counter with CBC-MAC
+// as per RFC 3610.
+//
+// See https://tools.ietf.org/html/rfc3610
+//
+// This code was lifted from https://github.com/bocajim/dtls/blob/a3300364a283fcb490d28a93d7fcfa7ba437fbbe/ccm/ccm.go
+// and as such was not written by the Pions authors. Like Pions this
+// code is licensed under MIT.
+//
+// A request for including CCM into the Go standard library
+// can be found as issue #27484 on the https://github.com/golang/go/
+// repository.
+package ccm
+
+import (
+	"crypto/cipher"
+	"crypto/subtle"
+	"encoding/binary"
+	"math"
+
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+)
+
+// ccm represents a Counter with CBC-MAC with a specific key.
+type ccm struct {
+	b cipher.Block
+	M uint8
+	L uint8
+}
+
+const ccmBlockSize = 16
+
+// CCM is a block cipher in Counter with CBC-MAC mode.
+// Providing authenticated encryption with associated data via the cipher.AEAD interface.
+type CCM interface {
+	cipher.AEAD
+	// MaxLength returns the maxium length of plaintext in calls to Seal.
+	// The maximum length of ciphertext in calls to Open is MaxLength()+Overhead().
+	// The maximum length is related to CCM's `L` parameter (15-noncesize) and
+	// is 1<<(8*L) - 1 (but also limited by the maxium size of an int).
+	MaxLength() int
+}
+
+// NewCCM returns the given 128-bit block cipher wrapped in CCM.
+// The tagsize must be an even integer between 4 and 16 inclusive
+// and is used as CCM's `M` parameter.
+// The noncesize must be an integer between 7 and 13 inclusive,
+// 15-noncesize is used as CCM's `L` parameter.
+func NewCCM(b cipher.Block, tagsize, noncesize int) (CCM, error) {
+	if b.BlockSize() != ccmBlockSize {
+		return nil, dtlserrors.ErrCCMInvalidBlockSize
+	}
+	if tagsize < 4 || tagsize > 16 || tagsize&1 != 0 {
+		return nil, dtlserrors.ErrCCMInvalidTagSize
+	}
+	lensize := 15 - noncesize
+	if lensize < 2 || lensize > 8 {
+		return nil, dtlserrors.ErrCCMInvalidNonceSize
+	}
+	c := &ccm{b: b, M: uint8(tagsize), L: uint8(lensize)}
+
+	return c, nil
+}
+
+func (c *ccm) NonceSize() int { return 15 - int(c.L) }
+func (c *ccm) Overhead() int  { return int(c.M) }
+func (c *ccm) MaxLength() int { return maxlen(c.L, c.Overhead()) }
+
+func maxlen(l uint8, tagsize int) int {
+	mLen := (uint64(1) << (8 * l)) - 1
+	if m64 := uint64(math.MaxInt64) - uint64(tagsize); l > 8 || mLen > m64 { //nolint:gosec // G114
+		mLen = m64 // The maximum lentgh on a 64bit arch
+	}
+	if mLen != uint64(int(mLen)) {
+		return math.MaxInt32 - tagsize // We have only 32bit int's
+	}
+
+	return int(mLen)
+}
+
+// MaxNonceLength returns the maximum nonce length for a given plaintext length.
+// A return value <= 0 indicates that plaintext length is too large for
+// any nonce length.
+func MaxNonceLength(pdatalen int) int {
+	const tagsize = 16
+	for L := 2; L <= 8; L++ {
+		if maxlen(uint8(L), tagsize) >= pdatalen {
+			return 15 - L
+		}
+	}
+
+	return 0
+}
+
+func (c *ccm) cbcRound(mac, data []byte) {
+	for i := range ccmBlockSize {
+		mac[i] ^= data[i]
+	}
+	c.b.Encrypt(mac, mac)
+}
+
+func (c *ccm) cbcData(mac, data []byte) {
+	for len(data) >= ccmBlockSize {
+		c.cbcRound(mac, data[:ccmBlockSize])
+		data = data[ccmBlockSize:]
+	}
+	if len(data) > 0 {
+		var block [ccmBlockSize]byte
+		copy(block[:], data)
+		c.cbcRound(mac, block[:])
+	}
+}
+
+func (c *ccm) tag(nonce, plaintext, adata []byte) ([]byte, error) {
+	var mac [ccmBlockSize]byte
+
+	if len(adata) > 0 {
+		mac[0] |= 1 << 6
+	}
+	mac[0] |= (c.M - 2) << 2
+	mac[0] |= c.L - 1
+	if len(nonce) != c.NonceSize() {
+		return nil, dtlserrors.ErrCCMInvalidNonceSize
+	}
+	if len(plaintext) > c.MaxLength() {
+		return nil, dtlserrors.ErrCCMPlaintextTooLong
+	}
+	binary.BigEndian.PutUint64(mac[ccmBlockSize-8:], uint64(len(plaintext)))
+	copy(mac[1:ccmBlockSize-c.L], nonce)
+	c.b.Encrypt(mac[:], mac[:])
+
+	var block [ccmBlockSize]byte
+	if adataLength := uint64(len(adata)); adataLength > 0 { //nolint:nestif
+		// First adata block includes adata length
+		// RFC 3610 section 2.2, NIST SP 800-38C A.2.2: lengths of 0xff00 and
+		// above are marked with 0xff 0xfe (4-byte length) or 0xff 0xff
+		// (8-byte length).
+		i := 2
+		switch {
+		case adataLength <= 0xfeff:
+			binary.BigEndian.PutUint16(block[:i], uint16(adataLength))
+		case adataLength < uint64(1<<32):
+			binary.BigEndian.PutUint16(block[0:2], 0xfffe)
+			i = 2 + 4
+			binary.BigEndian.PutUint32(block[2:i], uint32(adataLength))
+		default:
+			binary.BigEndian.PutUint16(block[0:2], 0xffff)
+			i = 2 + 8
+			binary.BigEndian.PutUint64(block[2:i], adataLength)
+		}
+		i = copy(block[i:], adata)
+		c.cbcRound(mac[:], block[:])
+		c.cbcData(mac[:], adata[i:])
+	}
+
+	if len(plaintext) > 0 {
+		c.cbcData(mac[:], plaintext)
+	}
+
+	return mac[:c.M], nil
+}
+
+// sliceForAppend takes a slice and a requested number of bytes. It returns a
+// slice with the contents of the given slice followed by that many bytes and a
+// second slice that aliases into it and contains only the extra bytes. If the
+// original slice has sufficient capacity then no allocation is performed.
+// From crypto/cipher/gcm.go
+// .
+func sliceForAppend(in []byte, n int) (head, tail []byte) {
+	if total := len(in) + n; cap(in) >= total {
+		head = in[:total]
+	} else {
+		head = make([]byte, total)
+		copy(head, in)
+	}
+	tail = head[len(in):]
+
+	return
+}
+
+// Seal encrypts and authenticates plaintext, authenticates the
+// additional data and appends the result to dst, returning the updated
+// slice. The nonce must be NonceSize() bytes long and unique for all
+// time, for a given key.
+// The plaintext must be no longer than MaxLength() bytes long.
+//
+// The plaintext and dst may alias exactly or not at all.
+func (c *ccm) Seal(dst, nonce, plaintext, adata []byte) []byte {
+	tag, err := c.tag(nonce, plaintext, adata)
+	if err != nil {
+		// The cipher.AEAD interface doesn't allow for an error return.
+		panic(err) // nolint
+	}
+
+	var iv, s0 [ccmBlockSize]byte
+	iv[0] = c.L - 1
+	copy(iv[1:ccmBlockSize-c.L], nonce)
+	c.b.Encrypt(s0[:], iv[:])
+	for i := 0; i < int(c.M); i++ {
+		tag[i] ^= s0[i]
+	}
+	iv[len(iv)-1] |= 1
+	stream := cipher.NewCTR(c.b, iv[:])
+	ret, out := sliceForAppend(dst, len(plaintext)+int(c.M))
+	stream.XORKeyStream(out, plaintext)
+	copy(out[len(plaintext):], tag)
+
+	return ret
+}
+
+func (c *ccm) Open(dst, nonce, ciphertext, adata []byte) ([]byte, error) {
+	if len(ciphertext) < int(c.M) {
+		return nil, dtlserrors.ErrCCMCiphertextTooShort
+	}
+	if len(ciphertext) > c.MaxLength()+c.Overhead() {
+		return nil, dtlserrors.ErrCCMCiphertextTooLong
+	}
+
+	tag := make([]byte, int(c.M))
+	copy(tag, ciphertext[len(ciphertext)-int(c.M):])
+	ciphertextWithoutTag := ciphertext[:len(ciphertext)-int(c.M)]
+
+	var iv, s0 [ccmBlockSize]byte
+	iv[0] = c.L - 1
+	copy(iv[1:ccmBlockSize-c.L], nonce)
+	c.b.Encrypt(s0[:], iv[:])
+	for i := 0; i < int(c.M); i++ {
+		tag[i] ^= s0[i]
+	}
+	iv[len(iv)-1] |= 1
+	stream := cipher.NewCTR(c.b, iv[:])
+
+	// Cannot decrypt directly to dst since we're not supposed to
+	// reveal the plaintext to the caller if authentication fails.
+	plaintext := make([]byte, len(ciphertextWithoutTag))
+	stream.XORKeyStream(plaintext, ciphertextWithoutTag)
+	expectedTag, err := c.tag(nonce, plaintext, adata)
+	if err != nil {
+		return nil, err
+	}
+
+	if subtle.ConstantTimeCompare(tag, expectedTag) != 1 {
+		return nil, dtlserrors.ErrCCMOpen
+	}
+
+	return append(dst, plaintext...), nil
+}

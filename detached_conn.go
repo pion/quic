@@ -1,0 +1,470 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package dtls
+
+import (
+	"context"
+	"errors"
+	"net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
+)
+
+// DetachedEventKind identifies an event produced by a DetachedConn.
+type DetachedEventKind uint8
+
+const (
+	// DetachedNoEvent indicates that no event is available.
+	DetachedNoEvent DetachedEventKind = iota
+	// DetachedWriteDatagrams provides one complete DTLS output batch in
+	// Datagrams and its destination in Addr.
+	DetachedWriteDatagrams
+	// DetachedApplicationData provides plaintext received from the peer in Data.
+	// Servers opting into early data may receive it before DetachedHandshakeDone.
+	DetachedApplicationData
+	// DetachedHandshakeDone indicates that the handshake has completed.
+	DetachedHandshakeDone
+	// DetachedClosed indicates that the connection has terminated with Err.
+	DetachedClosed
+	// DetachedEarlyDataReady indicates that the client may call WriteEarlyData.
+	// 0-RTT only.
+	DetachedEarlyDataReady
+	// DetachedEarlyDataAccepted indicates that the server accepted the client's
+	// early data. It does not indicate delivery or handshake completion.
+	// 0-RTT only.
+	DetachedEarlyDataAccepted
+	// DetachedEarlyDataRejected indicates that the server rejected the client's
+	// early data. The application decides whether to retry after the handshake.
+	// 0-RTT only.
+	DetachedEarlyDataRejected
+)
+
+// DetachedEvent is an event produced by a DetachedConn. Fields are populated
+// according to Kind. Its byte slices are owned by the caller.
+type DetachedEvent struct {
+	Kind DetachedEventKind
+
+	Datagrams [][]byte
+	Data      []byte
+	Addr      net.Addr
+	Err       error
+}
+
+// DetachedConn is a DTLS connection whose datagram transport is supplied by
+// its caller. It remains active for application and post-handshake traffic.
+// This API is inspired by crypto/tls.QUICConn, Start, HandleDatagram, Write, and Close must not be
+// called concurrently with one another. EventReady may be selected concurrently.
+// After a driving method returns, call NextEvent until it returns DetachedNoEvent.
+type DetachedConn struct {
+	conn    *Conn
+	inbound chan addrPkt
+	driveMu sync.Mutex
+
+	eventMu   sync.Mutex
+	events    []DetachedEvent
+	nextEvent int
+	// Match Conn's single-record pre-handshake application buffer.
+	pendingApplicationData *DetachedEvent
+	eventReady             chan struct{}
+
+	started         bool
+	earlyDataStatus dtlsstate.EarlyDataStatus
+	blocked         chan struct{}
+
+	established   atomic.Bool
+	quiescentSkip atomic.Bool
+
+	terminalOnce sync.Once
+	terminal     chan struct{}
+	terminalErr  error
+}
+
+var (
+	errDetachedConnStarted = errors.New("DetachedConn.Start called more than once")
+	errNilContext          = errors.New("nil context")
+)
+
+// DetachedClient returns a new detached client connection. Call Start before
+// supplying datagrams.
+func DetachedClient(remoteAddr net.Addr, opts ...ClientOption) (*DetachedConn, error) {
+	if remoteAddr == nil {
+		return nil, dtlserrors.ErrNilRemoteAddr
+	}
+	config, err := buildClientConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err = validateConfig(config); err != nil {
+		return nil, err
+	}
+
+	return newDetachedConn(remoteAddr, config, true)
+}
+
+// DetachedServer returns a new detached server connection. Call Start before
+// supplying datagrams.
+func DetachedServer(remoteAddr net.Addr, opts ...ServerOption) (*DetachedConn, error) {
+	if remoteAddr == nil {
+		return nil, dtlserrors.ErrNilRemoteAddr
+	}
+	config, err := buildServerConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err = validateConfig(config); err != nil {
+		return nil, err
+	}
+	if config.OnConnectionAttempt != nil {
+		if err = config.OnConnectionAttempt(remoteAddr); err != nil {
+			return nil, err
+		}
+	}
+
+	return newDetachedConn(remoteAddr, config, false)
+}
+
+func newDetachedConn(remoteAddr net.Addr, config *dtlsConfig, isClient bool) (*DetachedConn, error) {
+	configValues, err := newConnConfigValues(config)
+	if err != nil {
+		return nil, err
+	}
+
+	detached := &DetachedConn{
+		blocked:    make(chan struct{}),
+		eventReady: make(chan struct{}, 1),
+		inbound:    make(chan addrPkt),
+		terminal:   make(chan struct{}),
+	}
+	handshakeConfig := newHandshakeConfig(config, configValues, nil)
+	handshakeConfig.EnableEarlyData = config.maxEarlyDataSize > 0
+	detached.conn = newConn(nil, remoteAddr, configValues, handshakeConfig, isClient)
+	detached.conn.detached = detached
+	detached.conn.handshakeConfig.TimerFactory = detached.newTimer
+	detached.conn.setRemoteEpoch(0)
+	detached.conn.setLocalEpoch(0)
+
+	return detached, nil
+}
+
+// Start starts the handshake and runs it until it needs peer input. It may
+// produce events and must be called at most once.
+func (c *DetachedConn) Start(ctx context.Context) error {
+	if ctx == nil {
+		return errNilContext
+	}
+	c.driveMu.Lock()
+	defer c.driveMu.Unlock()
+
+	if c.started {
+		return errDetachedConnStarted
+	}
+	c.started = true
+
+	go func() {
+		if err := c.conn.HandshakeContext(ctx); err != nil {
+			c.terminate(err, true) //nolint:contextcheck
+		}
+	}()
+
+	return c.waitUntilBlocked()
+}
+
+// HandleDatagram supplies one datagram received from addr and runs DTLS until
+// it is blocked again. It may produce events. A nil addr uses the connection's
+// current remote address. It does not retain datagram after returning.
+func (c *DetachedConn) HandleDatagram(datagram []byte, addr net.Addr) error {
+	c.driveMu.Lock()
+	defer c.driveMu.Unlock()
+
+	if !c.started {
+		return dtlserrors.ErrHandshakeInProgress
+	}
+	if err := c.currentError(); err != nil {
+		return err
+	}
+	if addr == nil {
+		addr = c.conn.RemoteAddr()
+	}
+
+	select {
+	case c.inbound <- addrPkt{rAddr: addr, data: datagram}:
+	case <-c.terminal:
+		return c.terminalErr
+	}
+
+	return c.waitUntilBlocked()
+}
+
+// Write encrypts plaintext application data and may produce events. The
+// handshake must be complete.
+func (c *DetachedConn) Write(data []byte) (int, error) {
+	c.driveMu.Lock()
+	defer c.driveMu.Unlock()
+
+	if err := c.currentError(); err != nil {
+		return 0, err
+	}
+	if !c.established.Load() {
+		return 0, dtlserrors.ErrHandshakeInProgress
+	}
+
+	version := dtlsstate.CommonState(c.conn.state).LocalVersion
+	err := c.conn.writeApplicationData(context.Background(), []*dtlsflight.Outbound{{
+		Content:    &protocol.ApplicationData{Data: data},
+		Protection: dtlsflight.ProtectionCiphertext,
+	}})
+	n := 0
+	if err == nil {
+		n = len(data)
+	}
+	if version == protocol.Version1_3 {
+		if quiescentErr := c.waitUntilBlocked(); err == nil {
+			err = quiescentErr
+		}
+	}
+
+	return n, err
+}
+
+// WriteEarlyData sends client application data before handshake completion,
+// after DetachedEarlyDataReady. Early data may be replayed or rejected; a
+// successful write does not imply server acceptance. Rejected data is not
+// automatically resent.
+func (c *DetachedConn) WriteEarlyData(data []byte) (int, error) {
+	c.driveMu.Lock()
+	defer c.driveMu.Unlock()
+	if err := c.currentError(); err != nil {
+		return 0, err
+	}
+	state, ok := c.conn.state.(*dtlsstate.State13)
+	if !ok || !state.IsClient || state.EarlyDataStatus != dtlsstate.EarlyDataReady || state.LocalEpoch() >= dtlsflight13.EpochHandshake {
+		return 0, dtlserrors.ErrHandshakeInProgress
+	}
+	if uint64(len(data)) > uint64(state.EarlyDataLimit)-state.EarlyDataBytes {
+		return 0, dtlserrors.ErrInvalidPacketLength
+	}
+	// count attempts and transport failures.
+	state.EarlyDataBytes += uint64(len(data))
+	_, err := c.conn.writePacketsWithResult(context.Background(), []*dtlsflight.Outbound{{
+		Epoch: dtlsflight13.EpochEarlyData, Protection: dtlsflight.ProtectionCiphertext,
+		Content: &protocol.ApplicationData{Data: data},
+	}})
+	if err != nil {
+		return 0, err
+	}
+
+	return len(data), nil
+}
+
+// EventReady is signaled when NextEvent may return an event and may be selected
+// alongside transport input. Signals are coalesced
+// It's the caller's responsibility to drain NextEvent until it returns DetachedNoEvent.
+func (c *DetachedConn) EventReady() <-chan struct{} { return c.eventReady }
+
+// NextEvent returns the next pending event, or DetachedNoEvent when the queue
+// is empty.
+func (c *DetachedConn) NextEvent() DetachedEvent {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+
+	if c.nextEvent == len(c.events) {
+		c.events = c.events[:0]
+		c.nextEvent = 0
+		select {
+		case <-c.eventReady:
+		default:
+		}
+
+		return DetachedEvent{Kind: DetachedNoEvent}
+	}
+	event := c.events[c.nextEvent]
+	c.events[c.nextEvent] = DetachedEvent{}
+	c.nextEvent++
+
+	return event
+}
+
+// ConnectionState returns the current DTLS connection state.
+func (c *DetachedConn) ConnectionState() (State, bool) { return c.conn.ConnectionState() }
+
+// SelectedSRTPProtectionProfile returns the negotiated SRTP profile.
+func (c *DetachedConn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
+	return c.conn.SelectedSRTPProtectionProfile()
+}
+
+// RemoteSRTPMasterKeyIdentifier returns the peer's negotiated SRTP MKI.
+func (c *DetachedConn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
+	return c.conn.RemoteSRTPMasterKeyIdentifier()
+}
+
+// Close closes the detached connection.
+func (c *DetachedConn) Close() error {
+	c.driveMu.Lock()
+	defer c.driveMu.Unlock()
+
+	return c.conn.Close()
+}
+
+func (c *DetachedConn) publishDatagrams(datagrams [][]byte, addr net.Addr) {
+	c.publishEvent(DetachedEvent{Kind: DetachedWriteDatagrams, Datagrams: datagrams, Addr: addr})
+}
+
+func (c *DetachedConn) publishApplicationData(data []byte, early bool) {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	event := DetachedEvent{Kind: DetachedApplicationData, Data: data}
+	if !early && !c.established.Load() {
+		if c.pendingApplicationData == nil {
+			c.pendingApplicationData = &event
+		}
+
+		return
+	}
+	c.publishEventLocked(event)
+}
+
+func (c *DetachedConn) publishEvent(event DetachedEvent) {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	c.publishEventLocked(event)
+}
+
+func (c *DetachedConn) publishEventLocked(event DetachedEvent) {
+	c.events = append(c.events, event)
+	select {
+	case c.eventReady <- struct{}{}:
+	default:
+	}
+}
+
+func (c *DetachedConn) markQuiescent() {
+	c.publishEarlyDataStatus()
+	c.eventMu.Lock()
+	if c.conn.isHandshakeCompletedSuccessfully() && c.established.CompareAndSwap(false, true) {
+		if state, ok := c.conn.state.(*dtlsstate.State13); ok && state.TrafficKeys != nil {
+			state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
+		}
+		c.publishEventLocked(DetachedEvent{Kind: DetachedHandshakeDone})
+		if c.pendingApplicationData != nil {
+			c.publishEventLocked(*c.pendingApplicationData)
+			c.pendingApplicationData = nil
+		}
+	}
+
+	c.eventMu.Unlock()
+	select {
+	case c.blocked <- struct{}{}:
+	case <-c.terminal:
+	}
+}
+
+func (c *DetachedConn) waitUntilBlocked() error {
+	select {
+	case <-c.blocked:
+		return c.currentError()
+	case <-c.terminal:
+		return c.terminalErr
+	}
+}
+
+func (c *DetachedConn) connectionTerminated(err error) {
+	var receivedAlert *alertError
+	if errors.As(err, &receivedAlert) && receivedAlert.Description == alert.CloseNotify {
+		err = ErrConnClosed
+	}
+	c.terminate(err, false)
+}
+
+func (c *DetachedConn) terminate(err error, closeConn bool) {
+	if err == nil {
+		err = ErrConnClosed
+	}
+	c.terminalOnce.Do(func() {
+		c.terminalErr = err
+		if closeConn {
+			_ = c.conn.close(false) //nolint:contextcheck
+		}
+		c.eventMu.Lock()
+		c.pendingApplicationData = nil
+		c.publishEventLocked(DetachedEvent{Kind: DetachedClosed, Err: err})
+		c.eventMu.Unlock()
+		close(c.terminal)
+	})
+}
+
+func (c *DetachedConn) currentError() error {
+	select {
+	case <-c.terminal:
+		return c.terminalErr
+	default:
+		return nil
+	}
+}
+
+func (c *DetachedConn) readDatagram(ctx context.Context, buffer []byte) (int, net.Addr, error) {
+	select {
+	case packet := <-c.inbound:
+		return copy(buffer, packet.data), packet.rAddr, nil
+	case <-ctx.Done():
+		return 0, nil, ctx.Err()
+	case <-c.terminal:
+		return 0, nil, c.terminalErr
+	}
+}
+
+func (c *DetachedConn) newTimer(d time.Duration) dtlsconfig.Timer {
+	timer := &detachedTimer{owner: c, ch: make(chan time.Time, 1)}
+	timer.timer = time.AfterFunc(d, timer.fire)
+
+	return timer
+}
+
+type detachedTimer struct {
+	owner   *DetachedConn
+	ch      chan time.Time
+	timer   *time.Timer
+	claimed atomic.Bool
+}
+
+func (t *detachedTimer) C() <-chan time.Time { return t.ch }
+
+func (t *detachedTimer) fire() {
+	t.owner.driveMu.Lock()
+	defer t.owner.driveMu.Unlock()
+	if !t.claimed.CompareAndSwap(false, true) {
+		return
+	}
+
+	t.ch <- time.Now()
+	_ = t.owner.waitUntilBlocked()
+}
+
+func (t *detachedTimer) Stop() {
+	if t.claimed.CompareAndSwap(false, true) {
+		t.timer.Stop()
+	}
+}
+
+func (c *DetachedConn) publishEarlyDataStatus() {
+	if state, ok := c.conn.state.(*dtlsstate.State13); ok && state.IsClient && state.EarlyDataStatus != c.earlyDataStatus {
+		c.earlyDataStatus = state.EarlyDataStatus
+		kind := map[dtlsstate.EarlyDataStatus]DetachedEventKind{
+			dtlsstate.EarlyDataReady:    DetachedEarlyDataReady,
+			dtlsstate.EarlyDataAccepted: DetachedEarlyDataAccepted,
+			dtlsstate.EarlyDataRejected: DetachedEarlyDataRejected,
+		}[state.EarlyDataStatus]
+		if kind != DetachedNoEvent {
+			c.publishEvent(DetachedEvent{Kind: kind})
+		}
+	}
+}

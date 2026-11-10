@@ -1,0 +1,97 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package protocol
+
+import (
+	"encoding/binary"
+
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"golang.org/x/crypto/cryptobyte"
+)
+
+// ACK is the DTLS 1.3 content type used to acknowledge receipt of
+// handshake records.
+//
+// https://datatracker.ietf.org/doc/html/rfc9147#section-7
+type ACK struct {
+	// Records is the list of RecordNumbers being acknowledged.
+	Records []RecordNumber
+}
+
+// RecordNumber identifies a specific DTLS record by its epoch and sequence number.
+// The 128-bit value matches the unpacked RecordNumber structure from RFC 9147 Section 4.2.
+type RecordNumber struct {
+	Epoch          uint64
+	SequenceNumber uint64
+}
+
+// (1<<16 - 1) / 16
+const maxACKRecords = 4095
+
+// ContentType returns the content type for ACK records (26).
+func (a ACK) ContentType() ContentType {
+	return ContentTypeACK
+}
+
+// MarshalSize returns the minimal size required for MarshalTo.
+func (a *ACK) MarshalSize() int {
+	return 2 + 16*len(a.Records)
+}
+
+// Marshal encodes the ACK message to its wire format.
+func (a *ACK) Marshal() ([]byte, error) {
+	if len(a.Records) > maxACKRecords {
+		return nil, dtlserrors.ErrInvalidACK
+	}
+
+	out := make([]byte, a.MarshalSize())
+	_, err := a.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalTo encodes the ACK message into a pre-allocated buffer.
+func (a *ACK) MarshalTo(out []byte) (int, error) {
+	if len(a.Records) > maxACKRecords {
+		return 0, dtlserrors.ErrInvalidACK
+	}
+	if len(out) < a.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	n := 0
+	binary.BigEndian.PutUint16(out, uint16(16*len(a.Records))) //nolint:gosec // bounded above.
+	n += 2
+
+	for _, rec := range a.Records {
+		binary.BigEndian.PutUint64(out[n:], rec.Epoch)
+		n += 8
+		binary.BigEndian.PutUint64(out[n:], rec.SequenceNumber)
+		n += 8
+	}
+
+	return a.MarshalSize(), nil
+}
+
+// Unmarshal decodes an ACK message from its wire format.
+func (a *ACK) Unmarshal(data []byte) error {
+	val := cryptobyte.String(data)
+
+	var recordList cryptobyte.String
+	if !val.ReadUint16LengthPrefixed(&recordList) || !val.Empty() {
+		return dtlserrors.ErrLengthMismatch
+	}
+
+	a.Records = make([]RecordNumber, 0)
+
+	for !recordList.Empty() {
+		var rec RecordNumber
+		if !recordList.ReadUint64(&rec.Epoch) || !recordList.ReadUint64(&rec.SequenceNumber) {
+			return dtlserrors.ErrInvalidACK
+		}
+		a.Records = append(a.Records, rec)
+	}
+
+	return nil
+}

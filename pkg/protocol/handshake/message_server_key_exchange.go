@@ -1,0 +1,230 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package handshake
+
+import (
+	"bytes"
+	"crypto/tls"
+	"encoding/binary"
+
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/hash"
+	"github.com/pion/dtls/v4/pkg/crypto/signature"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+)
+
+// MessageServerKeyExchange supports ECDH and PSK.
+type MessageServerKeyExchange struct {
+	IdentityHint []byte
+
+	EllipticCurveType  elliptic.CurveType
+	NamedCurve         elliptic.Curve
+	PublicKey          []byte
+	HashAlgorithm      hash.Algorithm
+	SignatureAlgorithm signature.Algorithm
+	Signature          []byte
+
+	// for unmarshaling
+	KeyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
+}
+
+// Type returns the Handshake Type.
+func (m MessageServerKeyExchange) Type() Type {
+	return TypeServerKeyExchange
+}
+
+// MarshalSize returns the size required for MarshalTo.
+func (m *MessageServerKeyExchange) MarshalSize() int {
+	total := 0
+	if m.IdentityHint != nil {
+		total += 2 + len(m.IdentityHint)
+	}
+
+	if m.EllipticCurveType == 0 || len(m.PublicKey) == 0 {
+		return total
+	}
+
+	total += 3
+	total += 1
+	total += len(m.PublicKey)
+
+	if m.validateMarshal() != nil {
+		return 0
+	}
+	if m.SignatureAlgorithm == signature.Anonymous {
+		return total
+	}
+
+	return total + 4 + len(m.Signature)
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) {
+	if err := m.validateMarshal(); err != nil {
+		return 0, err
+	}
+
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	offset := 0
+	if m.IdentityHint != nil {
+		binary.BigEndian.PutUint16(out[offset:], uint16(len(m.IdentityHint))) //nolint:gosec //G115
+		offset += 2
+		n := copy(out[offset:], m.IdentityHint)
+		offset += n
+	}
+
+	if m.EllipticCurveType == 0 || len(m.PublicKey) == 0 {
+		return offset, nil
+	}
+	out[offset] = byte(m.EllipticCurveType)
+	offset += 1
+	binary.BigEndian.PutUint16(out[offset:], uint16(m.NamedCurve))
+	offset += 2
+
+	//nolint:gosec // G115, no risk of overflow, the biggest supported curve is 97 bytes.
+	out[offset] = byte(len(m.PublicKey))
+	offset += 1
+	n := copy(out[offset:], m.PublicKey)
+	offset += n
+	if m.SignatureAlgorithm == signature.Anonymous {
+		return offset, nil
+	}
+
+	alg := signaturehash.Algorithm{Hash: m.HashAlgorithm, Signature: m.SignatureAlgorithm}
+	tmp := alg.Marshal()
+	n = copy(out[offset:], tmp)
+	offset += n
+	binary.BigEndian.PutUint16(out[offset:], uint16(len(m.Signature))) //nolint:gosec // G115
+	offset += 2
+	copy(out[offset:], m.Signature)
+
+	return m.MarshalSize(), nil
+}
+
+// Marshal encodes the Handshake.
+func (m *MessageServerKeyExchange) Marshal() ([]byte, error) {
+	if err := m.validateMarshal(); err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func (m *MessageServerKeyExchange) validateMarshal() error {
+	switch {
+	case m.HashAlgorithm != hash.None && len(m.Signature) == 0:
+		return dtlserrors.ErrInvalidSignHashAlgorithm
+	case m.HashAlgorithm == hash.None && len(m.Signature) > 0:
+		return dtlserrors.ErrInvalidSignHashAlgorithm
+	case m.SignatureAlgorithm == signature.Anonymous && (m.HashAlgorithm != hash.None || len(m.Signature) > 0):
+		return dtlserrors.ErrInvalidSignHashAlgorithm
+	default:
+		return nil
+	}
+}
+
+// Unmarshal populates the message from encoded data.
+func (m *MessageServerKeyExchange) Unmarshal(data []byte) error {
+	switch {
+	case len(data) < 2:
+		return dtlserrors.ErrBufferTooSmall
+	case m.KeyExchangeAlgorithm == ciphersuite.KeyExchangeAlgorithmNone:
+		return dtlserrors.ErrCipherSuiteUnset
+	}
+
+	hintLength := int(binary.BigEndian.Uint16(data))
+	if hintLength <= len(data)-2 && m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmPsk) {
+		m.IdentityHint = bytes.Clone(data[2 : 2+hintLength])
+		data = data[2+hintLength:]
+	}
+	if m.KeyExchangeAlgorithm == ciphersuite.KeyExchangeAlgorithmPsk {
+		if len(data) == 0 {
+			return nil
+		}
+
+		return dtlserrors.ErrLengthMismatch
+	}
+
+	if !m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmEcdhe) {
+		return dtlserrors.ErrLengthMismatch
+	}
+
+	return m.unmarshalECDHE(data)
+}
+
+func (m *MessageServerKeyExchange) unmarshalECDHE(data []byte) error {
+	if len(data) == 0 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	if _, ok := elliptic.CurveTypes()[elliptic.CurveType(data[0])]; ok {
+		m.EllipticCurveType = elliptic.CurveType(data[0])
+	} else {
+		return dtlserrors.ErrInvalidEllipticCurveType
+	}
+
+	if len(data[1:]) < 2 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+	m.NamedCurve = elliptic.Curve(binary.BigEndian.Uint16(data[1:3]))
+	if _, ok := elliptic.Curves()[m.NamedCurve]; !ok {
+		return dtlserrors.ErrInvalidNamedCurve
+	}
+	if len(data) < 4 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	publicKeyLength := int(data[3])
+	offset := 4 + publicKeyLength
+	if len(data) < offset {
+		return dtlserrors.ErrBufferTooSmall
+	}
+	m.PublicKey = bytes.Clone(data[4:offset])
+
+	return m.unmarshalSignature(data, offset)
+}
+
+func (m *MessageServerKeyExchange) unmarshalSignature(data []byte, offset int) error {
+	// Anon connection doesn't contains hashAlgorithm, signatureAlgorithm, signature
+	if len(data) == offset {
+		return nil
+	} else if len(data) <= offset+1 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	scheme := binary.BigEndian.Uint16(data[offset : offset+2])
+	var alg signaturehash.Algorithm
+	err := alg.Unmarshal(tls.SignatureScheme(scheme))
+	if err != nil {
+		return dtlserrors.ErrInvalidSignHashAlgorithm
+	}
+
+	m.HashAlgorithm = alg.Hash
+	m.SignatureAlgorithm = alg.Signature
+
+	offset += 2
+
+	if len(data) < offset+2 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+	signatureLength := int(binary.BigEndian.Uint16(data[offset:]))
+	offset += 2
+	if len(data) < offset+signatureLength {
+		return dtlserrors.ErrBufferTooSmall
+	}
+	m.Signature = bytes.Clone(data[offset : offset+signatureLength])
+
+	return nil
+}

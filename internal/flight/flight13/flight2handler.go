@@ -1,0 +1,142 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package flight13
+
+import (
+	"context"
+
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/negotiation"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+)
+
+func flight2Parse(
+	_ context.Context,
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) (Flight, *alert.Alert, error) {
+	pull := flightCtx.cache.FullPullMapItems(
+		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: true, Optional: false},
+	)
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
+		return 0, nil, nil
+	}
+
+	// Reuse accepted ECH state.
+	if flightCtx.state.ECHServer != nil {
+		logical, err := flightCtx.processECHClientHello(pull.Items[0])
+		if err != nil {
+			failure := protectedFlightParseFailure(err)
+
+			return 0, failure.alert, failure.err
+		}
+		pull.Items = []dtlsflight.DecodedHandshakeCacheItem{logical}
+		pull.Messages[handshake.TypeClientHello] = logical.Parsed.Message
+	}
+
+	return parseRetryClientHello(flightCtx, pull)
+}
+
+func parseRetryClientHello(flightCtx *handshakeContext, pull dtlsflight.HandshakeCachePullResult) (Flight, *alert.Alert, error) {
+	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
+	if !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	if clientHello.Version != protocol.Version1_2 {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
+	}
+	snapshots := flightCtx.state.RemoteClientHelloSnapshots
+	if err := snapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+	}
+	if err := negotiation.ValidateClientHelloRetry(snapshots.Initial(), snapshots.Current(), flightCtx.state.HelloRetryRequest); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+	}
+
+	if failure := processClientHelloExtensions(flightCtx.state, clientHello); failure != nil {
+		return 0, failure.alert, failure.err
+	}
+	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
+		return 0, failure.alert, failure.err
+	}
+	if !flightCtx.state.PSKOnly {
+		if failure := generateClientKeyShareSecret(flightCtx.state, flightCtx.cfg); failure != nil {
+			return 0, failure.alert, failure.err
+		}
+	}
+	flightCtx.state.RemoteClientHelloSnapshots = snapshots
+	flightCtx.state.HandshakeRecvSequence = pull.NextSequence
+
+	return Flight4, nil, nil
+}
+
+func flight2Generate(
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	flightCtx.state.HandshakeSendSequence = 0
+	if flightCtx.state.CipherSuite == nil {
+		return nil, nil, dtlserrors.ErrCipherSuiteUnset
+	}
+
+	random := handshake.Random{}
+	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
+
+	exts := []extension.Value{}
+
+	exts = append(exts, &extension13.SelectedVersion{
+		Version: protocol.Version1_3,
+	})
+	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
+
+	if !flightCtx.state.PSKOnly && flightCtx.state.SelectedGroup != 0 {
+		// RFC 8446 Section 4.2.8 requires a client to abort with illegal_parameter
+		// if an HRR selects a group for which it already supplied a key share.
+		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
+		// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.8
+		_, clientAlreadyOfferedShare := clientKeyShareForGroup(flightCtx.state, flightCtx.state.SelectedGroup)
+		if !clientAlreadyOfferedShare {
+			exts = append(exts, &extension13.RetryKeyShare{
+				SelectedGroup: flightCtx.state.SelectedGroup,
+			})
+		}
+	}
+
+	if len(flightCtx.state.Cookie) > 0 {
+		exts = append(exts, &extension13.Cookie{
+			Cookie: flightCtx.state.Cookie,
+		})
+	}
+	serverHello := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: exts}
+	serverHello, err := finalizeServerHello(flightCtx, serverHello)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	request, err := negotiation.ValidateHelloRetryRequest(flightCtx.state.RemoteClientHelloSnapshots.Initial(), serverHello)
+	if err != nil {
+		return nil, nil, err
+	}
+	flightCtx.state.HelloRetryRequest = request
+	if err := flightCtx.confirmECHRetry(serverHello); err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+
+	return []*dtlsflight.Outbound{
+		{
+			Content: &handshake.Handshake{
+				Message: serverHello,
+			},
+		},
+	}, nil, nil
+}

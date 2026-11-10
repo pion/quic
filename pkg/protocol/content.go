@@ -1,0 +1,33 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package protocol
+
+// ContentType represents the IANA Registered ContentTypes
+//
+// https://tools.ietf.org/html/rfc4346#section-6.2.1
+type ContentType uint8
+
+// ContentType enums.
+const (
+	ContentTypeChangeCipherSpec       ContentType = 20
+	ContentTypeAlert                  ContentType = 21
+	ContentTypeHandshake              ContentType = 22
+	ContentTypeApplicationData        ContentType = 23
+	ContentTypeConnectionID           ContentType = 25
+	ContentTypeACK                    ContentType = 26
+	ContentTypeReturnRoutabilityCheck ContentType = 27
+)
+
+// Content is the top level distinguisher for a DTLS Datagram.
+type Content interface {
+	ContentType() ContentType
+	Marshal() ([]byte, error)
+	MarshalTo([]byte) (int, error)
+	MarshalSize() int
+	Unmarshal(data []byte) error
+}
+
+func IsDTLS13Ciphertext(ct ContentType) bool {
+	return ct > 31 && ct < 64
+}

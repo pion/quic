@@ -1,0 +1,63 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+// Package util contains small helpers used across the repo
+package util // nolint:revive
+
+import (
+	"bytes"
+	"encoding/binary"
+)
+
+// BigEndianUint24 returns the value of a big endian uint24.
+func BigEndianUint24(raw []byte) uint32 {
+	if len(raw) < 3 {
+		return 0
+	}
+
+	rawCopy := make([]byte, 4)
+	copy(rawCopy[1:], raw)
+
+	return binary.BigEndian.Uint32(rawCopy)
+}
+
+// PutBigEndianUint24 encodes a uint24 and places into out.
+func PutBigEndianUint24(out []byte, in uint32) {
+	tmp := make([]byte, 4)
+	binary.BigEndian.PutUint32(tmp, in)
+	copy(out, tmp[1:])
+}
+
+// PutBigEndianUint48 encodes a uint64 and places into out.
+func PutBigEndianUint48(out []byte, in uint64) {
+	tmp := make([]byte, 8)
+	binary.BigEndian.PutUint64(tmp, in)
+	copy(out, tmp[2:])
+}
+
+// CloneByteSlices returns a deep copy of in, preserving nil.
+func CloneByteSlices(in [][]byte) [][]byte {
+	if in == nil {
+		return nil
+	}
+
+	out := make([][]byte, len(in))
+	for i := range in {
+		out[i] = bytes.Clone(in[i])
+	}
+
+	return out
+}
+
+// SplitBytes splits bytes into chunks no larger than splitLen.
+func SplitBytes(bytes []byte, splitLen int) [][]byte {
+	splitBytes := make([][]byte, 0)
+	numBytes := len(bytes)
+	for i := 0; i < numBytes; i += splitLen {
+		j := min(i+splitLen, numBytes)
+
+		splitBytes = append(splitBytes, bytes[i:j])
+	}
+
+	return splitBytes
+}
