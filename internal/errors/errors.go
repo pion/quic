@@ -27,7 +27,6 @@ var (
 	ErrCipherSuiteNoIntersection            = stderrors.New("client+server do not support any shared cipher suites")
 	ErrClientCertificateNotVerified         = stderrors.New("client sent certificate but did not verify it")
 	ErrClientCertificateRequired            = stderrors.New("server required client verification, but got none")
-	ErrClientNoMatchingSRTPProfile          = stderrors.New("server responded with SRTP Profile we do not support")
 	ErrCookieMismatch                       = stderrors.New("client+server cookie does not match")
 	ErrInvalidCertificate                   = stderrors.New("no certificate provided")
 	ErrCertificateVerificationFailed        = stderrors.New("certificate verification failed")
@@ -70,8 +69,6 @@ var (
 	)
 	ErrPSKNotNegotiated                 = stderrors.New("DTLS 1.3 external PSK was not negotiated")
 	ErrPSKAndIdentityMustBeSetForClient = stderrors.New("PSK and PSK Identity Hint must both be set for client")
-	ErrRequestedButNoSRTPExtension      = stderrors.New("SRTP support was requested but server did not respond with use_srtp extension")
-	ErrServerNoMatchingSRTPProfile      = stderrors.New("client requested SRTP but we have no matching profiles")
 	ErrVerifyDataMismatch               = stderrors.New("expected and actual verify data does not match")
 	ErrNotAcceptableCertificateChain    = stderrors.New("certificate chain is not signed by an acceptable CA")
 
@@ -102,16 +99,13 @@ var (
 		"signature schemes option requires at least one scheme",
 	)
 	ErrEmptyCertificateSignatureSchemes = stderrors.New("certificate signature schemes option requires at least one scheme")
-	ErrEmptySRTPProtectionProfiles      = stderrors.New(
-		"SRTP protection profiles option requires at least one profile",
-	)
-	ErrInvalidFlightInterval    = stderrors.New("flight interval must be positive")
-	ErrInvalidPSKIdentityLimit  = stderrors.New("PSK identity limit must be positive")
-	ErrTooManyPSKIdentities     = stderrors.New("PSK offer exceeds the configured identity limit")
-	ErrPSKIdentity              = stderrors.New("selected PSK identity was not offered")
-	ErrPSKCount                 = stderrors.New("client PSK callback must return at least one PSK")
-	ErrPSKHash                  = stderrors.New("PSK hash must be SHA-256 or SHA-384")
-	ErrNilVerifyPeerCertificate = stderrors.New(
+	ErrInvalidFlightInterval            = stderrors.New("flight interval must be positive")
+	ErrInvalidPSKIdentityLimit          = stderrors.New("PSK identity limit must be positive")
+	ErrTooManyPSKIdentities             = stderrors.New("PSK offer exceeds the configured identity limit")
+	ErrPSKIdentity                      = stderrors.New("selected PSK identity was not offered")
+	ErrPSKCount                         = stderrors.New("client PSK callback must return at least one PSK")
+	ErrPSKHash                          = stderrors.New("PSK hash must be SHA-256 or SHA-384")
+	ErrNilVerifyPeerCertificate         = stderrors.New(
 		"verify peer certificate option requires a non-nil callback",
 	)
 	ErrNilVerifyConnection = stderrors.New(
@@ -170,14 +164,12 @@ var (
 
 	ErrInvalidACK = stderrors.New("ack invalid")
 
-	ErrALPNInvalidFormat           = stderrors.New("invalid alpn format")
-	ErrALPNNoAppProto              = stderrors.New("no application protocol")
-	ErrInvalidSNIFormat            = stderrors.New("invalid server name format")
-	ErrInvalidCIDFormat            = stderrors.New("invalid connection ID format")
-	ErrMasterKeyIdentifierTooLarge = stderrors.New("master key identifier is over 255 bytes")
-	ErrUseSRTPDataTooLarge         = stderrors.New("use_srtp extension data exceeds uint16 length")
-	ErrPreSharedKeyFormat          = stderrors.New("invalid Pre-Shared Key extension format")
-	ErrPskKeyExchangeModesFormat   = stderrors.New(
+	ErrALPNInvalidFormat         = stderrors.New("invalid alpn format")
+	ErrALPNNoAppProto            = stderrors.New("no application protocol")
+	ErrInvalidSNIFormat          = stderrors.New("invalid server name format")
+	ErrInvalidCIDFormat          = stderrors.New("invalid connection ID format")
+	ErrPreSharedKeyFormat        = stderrors.New("invalid Pre-Shared Key extension format")
+	ErrPskKeyExchangeModesFormat = stderrors.New(
 		"invalid Pre-Shared Key Exchange Modes extension format",
 	)
 	ErrNoPskKeyExchangeMode = stderrors.New(

@@ -28,8 +28,6 @@ type State struct {
 	localRandom, remoteRandom handshake.Random
 	cipherSuiteDescriptor     cryptosuite.Suite
 	sequenceNumber            uint64
-	srtpProtectionProfile     SRTPProtectionProfile
-	peerSRTPMKI               []byte
 	localConnectionID         []byte
 	remoteConnectionID        []byte
 	rrcNegotiated             bool
@@ -106,26 +104,24 @@ func remainingUsage(limit, used uint64) uint64 {
 }
 
 type serializedState struct {
-	Handoff               bool
-	ECHAccepted           bool
-	ServerName            string
-	DTLS13                *serializedState13
-	ExporterMasterSecret  []byte
-	KeyUsage              *KeyUsageStats
-	Version               protocol.Version
-	LocalRandom           [handshake.RandomLength]byte
-	RemoteRandom          [handshake.RandomLength]byte
-	CipherSuiteID         uint16
-	SequenceNumber        uint64
-	SRTPProtectionProfile uint16
-	PeerSRTPMKI           []byte
-	PeerCertificates      [][]byte
-	IdentityHint          []byte
-	LocalConnectionID     []byte
-	RemoteConnectionID    []byte
-	RRCNegotiated         bool
-	IsClient              bool
-	NegotiatedProtocol    string
+	Handoff              bool
+	ECHAccepted          bool
+	ServerName           string
+	DTLS13               *serializedState13
+	ExporterMasterSecret []byte
+	KeyUsage             *KeyUsageStats
+	Version              protocol.Version
+	LocalRandom          [handshake.RandomLength]byte
+	RemoteRandom         [handshake.RandomLength]byte
+	CipherSuiteID        uint16
+	SequenceNumber       uint64
+	PeerCertificates     [][]byte
+	IdentityHint         []byte
+	LocalConnectionID    []byte
+	RemoteConnectionID   []byte
+	RRCNegotiated        bool
+	IsClient             bool
+	NegotiatedProtocol   string
 }
 
 func generateState(internalState *dtlsstate.State13) (*State, error) {
@@ -151,8 +147,6 @@ func snapshotCommonState(common *dtlsstate.Common) *State {
 		localRandom:           common.LocalRandom,
 		remoteRandom:          common.RemoteRandom,
 		sequenceNumber:        common.NextLocalSequenceNumber(common.LocalEpoch()),
-		srtpProtectionProfile: common.SRTPProtectionProfile(),
-		peerSRTPMKI:           bytes.Clone(common.RemoteSRTPMasterKeyIdentifier),
 		localConnectionID:     bytes.Clone(common.LocalConnectionID()),
 		remoteConnectionID:    bytes.Clone(common.RemoteConnectionID),
 		rrcNegotiated:         common.RRCNegotiated,
@@ -208,26 +202,24 @@ func (s *State) serialize() (*serializedState, error) {
 	}
 
 	return &serializedState{
-		Handoff:               s.resumeToken != nil,
-		DTLS13:                s.state13,
-		ExporterMasterSecret:  s.exporterMasterSecret,
-		KeyUsage:              s.KeyUsage,
-		Version:               s.version,
-		CipherSuiteID:         uint16(s.CipherSuiteID),
-		SequenceNumber:        s.sequenceNumber,
-		LocalRandom:           s.localRandom.MarshalFixed(),
-		RemoteRandom:          s.remoteRandom.MarshalFixed(),
-		SRTPProtectionProfile: uint16(s.srtpProtectionProfile),
-		PeerSRTPMKI:           bytes.Clone(s.peerSRTPMKI),
-		PeerCertificates:      s.PeerCertificates,
-		IdentityHint:          s.IdentityHint,
-		LocalConnectionID:     s.localConnectionID,
-		RemoteConnectionID:    s.remoteConnectionID,
-		RRCNegotiated:         s.rrcNegotiated,
-		IsClient:              s.isClient,
-		NegotiatedProtocol:    s.NegotiatedProtocol,
-		ServerName:            s.ServerName,
-		ECHAccepted:           s.ECHAccepted,
+		Handoff:              s.resumeToken != nil,
+		DTLS13:               s.state13,
+		ExporterMasterSecret: s.exporterMasterSecret,
+		KeyUsage:             s.KeyUsage,
+		Version:              s.version,
+		CipherSuiteID:        uint16(s.CipherSuiteID),
+		SequenceNumber:       s.sequenceNumber,
+		LocalRandom:          s.localRandom.MarshalFixed(),
+		RemoteRandom:         s.remoteRandom.MarshalFixed(),
+		PeerCertificates:     s.PeerCertificates,
+		IdentityHint:         s.IdentityHint,
+		LocalConnectionID:    s.localConnectionID,
+		RemoteConnectionID:   s.remoteConnectionID,
+		RRCNegotiated:        s.rrcNegotiated,
+		IsClient:             s.isClient,
+		NegotiatedProtocol:   s.NegotiatedProtocol,
+		ServerName:           s.ServerName,
+		ECHAccepted:          s.ECHAccepted,
 	}, nil
 }
 
@@ -253,8 +245,6 @@ func (s *State) deserialize(serialized serializedState) {
 	s.localRandom.UnmarshalFixed(serialized.LocalRandom)
 	s.remoteRandom.UnmarshalFixed(serialized.RemoteRandom)
 	s.sequenceNumber = serialized.SequenceNumber
-	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
-	s.peerSRTPMKI = bytes.Clone(serialized.PeerSRTPMKI)
 	s.localConnectionID = serialized.LocalConnectionID
 	s.remoteConnectionID = serialized.RemoteConnectionID
 	s.rrcNegotiated = serialized.RRCNegotiated
@@ -311,15 +301,13 @@ func (s *State) restoreCommonState(suite cryptosuite.Suite) *dtlsstate.Common {
 		PeerCertificates:   dtlsutil.CloneByteSlices(s.PeerCertificates),
 		IdentityHint:       bytes.Clone(s.IdentityHint),
 		NegotiatedProtocol: s.NegotiatedProtocol, RRCNegotiated: s.rrcNegotiated,
-		ServerName:                    s.ServerName,
-		ECHAccepted:                   s.ECHAccepted,
-		RemoteConnectionID:            bytes.Clone(s.remoteConnectionID),
-		RemoteSRTPMasterKeyIdentifier: bytes.Clone(s.peerSRTPMKI),
+		ServerName:         s.ServerName,
+		ECHAccepted:        s.ECHAccepted,
+		RemoteConnectionID: bytes.Clone(s.remoteConnectionID),
 	}
 	common.SetLocalEpoch(s.localEpoch)
 	common.SetRemoteEpoch(s.remoteEpoch)
 	common.SetLocalConnectionID(bytes.Clone(s.localConnectionID))
-	common.SetSRTPProtectionProfile(s.srtpProtectionProfile)
 	common.SetLocalSequenceNumber(s.localEpoch, s.sequenceNumber)
 
 	return common

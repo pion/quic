@@ -161,7 +161,6 @@ func flight4Generate(
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
-	cfg := flightCtx.cfg
 
 	if state.CipherSuite == nil {
 		return nil, nil, dtlserrors.ErrCipherSuiteUnset
@@ -183,11 +182,7 @@ func flight4Generate(
 		serverHelloExtensions = append(serverHelloExtensions, &extension13.SelectedPSK{Identity: state.PSKIdentity})
 	}
 	offer := state.RemoteClientHelloSnapshots.Current()
-	srtpDecision, err := negotiation.NegotiateSRTP(offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier)
-	if err != nil {
-		return nil, nil, err
-	}
-	serverHelloExtensions, err = appendServerConnectionID(flightCtx, offer, serverHelloExtensions)
+	serverHelloExtensions, err := appendServerConnectionID(flightCtx, offer, serverHelloExtensions)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -206,7 +201,7 @@ func flight4Generate(
 		Content: &handshake.Handshake{Message: serverHelloMessage},
 	}
 
-	return generateProtectedServerFlight(flightCtx, serverHello, decision, srtpDecision)
+	return generateProtectedServerFlight(flightCtx, serverHello, decision)
 }
 
 func finalizeServerHello(flightCtx *handshakeContext, message *handshake.MessageServerHello) (*handshake.MessageServerHello, error) {
@@ -223,7 +218,7 @@ func finalizeServerHello(flightCtx *handshakeContext, message *handshake.Message
 	return message, nil
 }
 
-func generateProtectedServerFlight(flightCtx *handshakeContext, serverHello *dtlsflight.Outbound, decision *negotiation.ConnectionID, srtpDecision negotiation.SRTPDecision) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+func generateProtectedServerFlight(flightCtx *handshakeContext, serverHello *dtlsflight.Outbound, decision *negotiation.ConnectionID) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state, cfg := flightCtx.state, flightCtx.cfg
 	var err error
 	encryptedExtensionsList := []extension.Value{}
@@ -232,9 +227,6 @@ func generateProtectedServerFlight(flightCtx *handshakeContext, serverHello *dtl
 	}
 	if state.EarlyDataStatus == dtlsstate.EarlyDataAccepted {
 		encryptedExtensionsList = append(encryptedExtensionsList, &extension13.EarlyData{})
-	}
-	if srtpDecision.ProtectionProfile != 0 {
-		encryptedExtensionsList = append(encryptedExtensionsList, &extension.SRTPSelection{ProtectionProfile: srtpDecision.ProtectionProfile, MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier)})
 	}
 	encryptedExtensionsList, err = flightCtx.appendECHRetryConfigs(encryptedExtensionsList)
 	if err != nil {
@@ -257,7 +249,6 @@ func generateProtectedServerFlight(flightCtx *handshakeContext, serverHello *dtl
 	}
 	pkts = append(pkts, HandshakePacket(&handshake.MessageFinished{}))
 	state.CommitNegotiatedExtensions(decision)
-	dtlsflight.CommitSRTP(state.Common, srtpDecision)
 
 	return pkts, nil, nil
 }

@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
-	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
@@ -18,26 +17,7 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
-	dtlsstate "github.com/pion/dtls/v4/internal/state"
 )
-
-func FindMatchingSRTPProfile(a, b []dtlsconfig.SRTPProtectionProfile) (dtlsconfig.SRTPProtectionProfile, bool) {
-	for _, p1 := range a {
-		if slices.Contains(b, p1) {
-			return p1, true
-		}
-	}
-
-	return 0, false
-}
-
-// CommitSRTP publishes a validated SRTP decision.
-func CommitSRTP(state *dtlsstate.Common, decision negotiation.SRTPDecision) {
-	if decision.ProtectionProfile != 0 {
-		state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(decision.PeerMasterKeyIdentifier)
-	}
-	state.SetSRTPProtectionProfile(decision.ProtectionProfile)
-}
 
 // AppendConnectionIDExtensions appends a connection ID and, when enabled, RRC.
 func AppendConnectionIDExtensions(

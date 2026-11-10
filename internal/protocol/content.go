@@ -14,7 +14,6 @@ const (
 	ContentTypeAlert                  ContentType = 21
 	ContentTypeHandshake              ContentType = 22
 	ContentTypeApplicationData        ContentType = 23
-	ContentTypeConnectionID           ContentType = 25
 	ContentTypeACK                    ContentType = 26
 	ContentTypeReturnRoutabilityCheck ContentType = 27
 )

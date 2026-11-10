@@ -159,12 +159,12 @@ func pipeConn(ca, cb net.PacketConn) (*Conn, *Conn, error) {
 
 	// Setup client
 	go func() {
-		client, err := testClient(ctx, ca, cb.LocalAddr(), []ClientOption{WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80)}, true)
+		client, err := testClient(ctx, ca, cb.LocalAddr(), nil, true)
 		resultCh <- result{client, err}
 	}()
 
 	// Setup server
-	server, err := testServer(ctx, cb, ca.LocalAddr(), []ServerOption{WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80)}, true)
+	server, err := testServer(ctx, cb, ca.LocalAddr(), nil, true)
 	if err != nil {
 		// Read from resultCh to prevent goroutine leak
 		if res := <-resultCh; res.c != nil {
@@ -363,13 +363,12 @@ func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.Handshake
 	loggerFactory := logging.NewDefaultLoggerFactory()
 
 	return &dtlsconfig.HandshakeConfig{
-		LocalCipherSuites:           cipherSuites,
-		EllipticCurves:              defaultCurves,
-		InitialRetransmitInterval:   time.Second,
-		Log:                         loggerFactory.NewLogger("dtls"),
-		LocalSignatureSchemes:       signaturehash.Algorithms(),
-		LocalCertSignatureSchemes:   nil,
-		LocalSRTPProtectionProfiles: nil,
+		LocalCipherSuites:         cipherSuites,
+		EllipticCurves:            defaultCurves,
+		InitialRetransmitInterval: time.Second,
+		Log:                       loggerFactory.NewLogger("dtls"),
+		LocalSignatureSchemes:     signaturehash.Algorithms(),
+		LocalCertSignatureSchemes: nil,
 	}
 }
 
@@ -2072,18 +2071,15 @@ func (s *earlyDataTestStore) Claim(_ []byte, _ time.Time) (bool, error) {
 	return true, nil
 }
 
-const earlyDataSRTPChanged = "srtp changed"
-
 func TestDetachedEarlyDataNegotiation(t *testing.T) {
 	certificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	for _, scenario := range []string{"accepted", "replay", "policy error", "no policy", "retry", "stale age", "expired", "context changed", "reduced limit", "cid", "srtp", earlyDataSRTPChanged, "alpn", "alpn changed", "alpn removed"} {
+	for _, scenario := range []string{"accepted", "replay", "policy error", "no policy", "retry", "stale age", "expired", "context changed", "reduced limit", "cid", "alpn", "alpn changed", "alpn removed"} {
 		t.Run(scenario, func(t *testing.T) {
 			ticket := Session{IsClient: true, ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, 32), Ticket: &SessionTicket{
 				CipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256, CreatedAt: time.Now().Add(-time.Second),
 				Lifetime: 60, AgeAdd: ^uint32(0), MaxEarlyDataSize: 32, PeerCertificates: certificate.Certificate,
 			}}
-			srtpOption := earlyDataSRTPOption(scenario)
 			clientALPN, serverALPN := earlyDataALPNOptions(scenario, ticket.Ticket)
 			clientStore := &earlyDataTestStore{session: ticket}
 			serverTicket := *ticket.Ticket
@@ -2099,7 +2095,7 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 			if scenario == "policy error" {
 				serverStore.claimErr = context.DeadlineExceeded
 			}
-			client, err := DetachedClient(&net.UDPAddr{Port: 5555}, srtpOption, clientALPN, WithSessionStore(clientStore, WithMaxEarlyDataSize(32)),
+			client, err := DetachedClient(&net.UDPAddr{Port: 5555}, clientALPN, WithSessionStore(clientStore, WithMaxEarlyDataSize(32)),
 				WithInsecureSkipVerify(true), WithFlightInterval(time.Hour))
 			require.NoError(t, err)
 			limit := uint32(32)
@@ -2109,7 +2105,7 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 			if scenario == "reduced limit" {
 				limit = 4
 			}
-			server, err := DetachedServer(&net.UDPAddr{Port: 4444}, srtpOption, serverALPN, WithCertificates(certificate), WithSessionStore(serverStore, WithMaxEarlyDataSize(limit)),
+			server, err := DetachedServer(&net.UDPAddr{Port: 4444}, serverALPN, WithCertificates(certificate), WithSessionStore(serverStore, WithMaxEarlyDataSize(limit)),
 				WithInsecureSkipVerifyHello(scenario != "retry"), WithFlightInterval(time.Hour))
 			require.NoError(t, err)
 			if scenario == "cid" {
@@ -2131,13 +2127,12 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 			events, data := pumpEarlyDataPair(t, client, server)
 			require.Contains(t, events, DetachedEarlyDataReady)
 			want := DetachedEarlyDataRejected
-			if map[string]bool{"accepted": true, "cid": true, "srtp": true, earlyDataSRTPChanged: true, "alpn": true}[scenario] {
+			if map[string]bool{"accepted": true, "cid": true, "alpn": true}[scenario] {
 				want = DetachedEarlyDataAccepted
 			}
 			require.Contains(t, events, want)
 			require.True(t, client.established.Load())
 			require.True(t, server.established.Load())
-			checkEarlyDataSRTP(t, client, server)
 			checkEarlyDataALPN(t, scenario, client, server)
 			if want == DetachedEarlyDataAccepted {
 				assert.Equal(t, []byte("early"), data)
@@ -2209,38 +2204,6 @@ func TestEarlyDataStoreValidation(t *testing.T) {
 			}
 		})
 	}
-}
-
-func earlyDataSRTPOption(scenario string) Option {
-	profile := map[string]SRTPProtectionProfile{
-		"srtp": SRTP_AES128_CM_HMAC_SHA1_80, earlyDataSRTPChanged: SRTP_AEAD_AES_128_GCM,
-	}[scenario]
-
-	return sharedOption(func(c *dtlsConfig) error {
-		if profile != 0 {
-			c.SRTPProtectionProfiles = []SRTPProtectionProfile{profile}
-			c.SRTPMasterKeyIdentifier = []byte{1, 2}
-		}
-
-		return nil
-	})
-}
-
-func checkEarlyDataSRTP(t *testing.T, client, server *DetachedConn) {
-	t.Helper()
-	profiles := client.conn.handshakeConfig.LocalSRTPProtectionProfiles
-	if len(profiles) == 0 {
-		return
-	}
-	require.Equal(t, profiles[0], client.conn.state.Common.SRTPProtectionProfile())
-	require.Equal(t, profiles[0], server.conn.state.Common.SRTPProtectionProfile())
-	clientState, _ := client.conn.ConnectionState()
-	serverState, _ := server.conn.ConnectionState()
-	clientKeys, err := clientState.ExportKeyingMaterial("EXTRACTOR-dtls_srtp", nil, 60)
-	require.NoError(t, err)
-	serverKeys, err := serverState.ExportKeyingMaterial("EXTRACTOR-dtls_srtp", nil, 60)
-	require.NoError(t, err)
-	require.Equal(t, clientKeys, serverKeys)
 }
 
 const earlyDataALPN = "old"

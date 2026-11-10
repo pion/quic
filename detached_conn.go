@@ -293,16 +293,6 @@ func (c *DetachedConn) NextEvent() DetachedEvent {
 // ConnectionState returns the current DTLS connection state.
 func (c *DetachedConn) ConnectionState() (State, bool) { return c.conn.ConnectionState() }
 
-// SelectedSRTPProtectionProfile returns the negotiated SRTP profile.
-func (c *DetachedConn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
-	return c.conn.SelectedSRTPProtectionProfile()
-}
-
-// RemoteSRTPMasterKeyIdentifier returns the peer's negotiated SRTP MKI.
-func (c *DetachedConn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
-	return c.conn.RemoteSRTPMasterKeyIdentifier()
-}
-
 // Close closes the detached connection.
 func (c *DetachedConn) Close() error {
 	c.driveMu.Lock()

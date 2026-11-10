@@ -362,13 +362,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 		return err
 	}
 
-	common := c.state.Common
-
 	if err := c.handshake(ctx, start); err != nil {
-		if !c.isHandshakeCompletedSuccessfully() {
-			common.SetSRTPProtectionProfile(0)
-		}
-
 		return err
 	}
 
@@ -744,26 +738,6 @@ func (c *Conn) publishHandshakeState() {
 	if err == nil {
 		c.handshakeSnapshot.Store(state)
 	}
-}
-
-// SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
-func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
-	profile := c.state.Common.SRTPProtectionProfile()
-	if profile == 0 {
-		return 0, false
-	}
-
-	return profile, true
-}
-
-// RemoteSRTPMasterKeyIdentifier returns the MasterKeyIdentifier value from the use_srtp.
-func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
-	common := c.state.Common
-	if profile := common.SRTPProtectionProfile(); profile == 0 {
-		return nil, false
-	}
-
-	return bytes.Clone(common.RemoteSRTPMasterKeyIdentifier), true
 }
 
 func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Outbound) error {

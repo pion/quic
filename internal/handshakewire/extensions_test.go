@@ -266,7 +266,6 @@ func expectedExtensionRegistry() map[extension.Type]map[Context]extensionPayload
 		extension.TypeServerName:          {ContextClientHello: &extension.ServerNameOffer{}, ContextEncryptedExtensions: &extension.ServerNameAck{}},
 		extension.TypeSupportedGroups:     {ContextClientHello: &extension.SupportedGroups{}, ContextEncryptedExtensions: &extension.SupportedGroups{}},
 		extension.TypeSignatureAlgorithms: {ContextClientHello: &extension.SignatureAlgorithms{}, ContextCertificateRequest: &extension.SignatureAlgorithms{}},
-		extension.TypeUseSRTP:             {ContextClientHello: &extension.SRTPOffer{}, ContextEncryptedExtensions: &extension.SRTPSelection{}},
 		extension.TypeALPN:                {ContextClientHello: &extension.ALPNOffer{}, ContextEncryptedExtensions: &extension.ALPNSelection{}},
 		extension.TypePreSharedKey:        {ContextClientHello: &extension13.OfferedPSKs{}, ContextServerHello: &extension13.SelectedPSK{}},
 		extension.TypeEarlyData:           {ContextClientHello: &extension13.EarlyData{}, ContextEncryptedExtensions: &extension13.EarlyData{}, ContextNewSessionTicket: &extension13.MaxEarlyData{}},
@@ -278,9 +277,6 @@ func expectedExtensionRegistry() map[extension.Type]map[Context]extensionPayload
 		extension.TypeCertificateAuthorities: {ContextClientHello: &extension13.CertificateAuthorities{}, ContextCertificateRequest: &extension13.CertificateAuthorities{}},
 		extension.TypeOIDFilters: {
 			ContextCertificateRequest: &extension13.OIDFilters{},
-		},
-		extension.TypePostHandshakeAuth: {
-			ContextClientHello: &extension13.PostHandshakeAuth{},
 		},
 		extension.TypeSignatureAlgorithmsCert: {ContextClientHello: &extension.CertificateSignatureAlgorithms{}, ContextCertificateRequest: &extension.CertificateSignatureAlgorithms{}},
 		extension.TypeKeyShare:                {ContextClientHello: &extension13.ClientKeyShare{}, ContextServerHello: &extension13.ServerKeyShare{}, ContextHelloRetryRequest: &extension13.RetryKeyShare{}},

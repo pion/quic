@@ -130,7 +130,6 @@ func flight0Generate(
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
-	state.SetSRTPProtectionProfile(0)
 
 	if !cfg.InsecureSkipHelloVerify {
 		state.Cookie = make([]byte, cookieLength)

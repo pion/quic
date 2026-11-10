@@ -33,7 +33,6 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	common.CipherSuite = state.CipherSuite
 	common.IdentityHint = bytes.Clone(state.IdentityHint)
 	common.NegotiatedProtocol = state.NegotiatedProtocol
-	common.RemoteSRTPMasterKeyIdentifier = bytes.Clone(state.RemoteSRTPMasterKeyIdentifier)
 	common.RemoteConnectionID = bytes.Clone(state.RemoteConnectionID)
 	common.LocalCIDOffered = state.LocalCIDOffered
 	common.RemoteCIDOffered = state.RemoteCIDOffered
@@ -44,7 +43,6 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	common.PeerSupportedProtocols = slices.Clone(state.PeerSupportedProtocols)
 	common.SetLocalEpoch(state.LocalEpoch())
 	common.SetRemoteEpoch(state.RemoteEpoch())
-	common.SetSRTPProtectionProfile(state.SRTPProtectionProfile())
 	if localCID := state.LocalConnectionID(); localCID != nil {
 		common.SetLocalConnectionID(bytes.Clone(localCID))
 	}

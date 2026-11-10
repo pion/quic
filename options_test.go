@@ -122,12 +122,11 @@ func TestEmptySliceOptionsReturnError(t *testing.T) {
 		option Option
 		want   error
 	}{
-		"EmptyCertificates":           {WithCertificates(), dtlserrors.ErrEmptyCertificates},
-		"EmptyCipherSuites":           {WithCipherSuites(), dtlserrors.ErrEmptyCipherSuites},
-		"EmptySignatureSchemes":       {WithSignatureSchemes(), dtlserrors.ErrEmptySignatureSchemes},
-		"EmptySRTPProtectionProfiles": {WithSRTPProtectionProfiles(), dtlserrors.ErrEmptySRTPProtectionProfiles},
-		"EmptySupportedProtocols":     {WithSupportedProtocols(), dtlserrors.ErrEmptySupportedProtocols},
-		"EmptyEllipticCurves":         {WithEllipticCurves(), dtlserrors.ErrEmptyEllipticCurves},
+		"EmptyCertificates":       {WithCertificates(), dtlserrors.ErrEmptyCertificates},
+		"EmptyCipherSuites":       {WithCipherSuites(), dtlserrors.ErrEmptyCipherSuites},
+		"EmptySignatureSchemes":   {WithSignatureSchemes(), dtlserrors.ErrEmptySignatureSchemes},
+		"EmptySupportedProtocols": {WithSupportedProtocols(), dtlserrors.ErrEmptySupportedProtocols},
+		"EmptyEllipticCurves":     {WithEllipticCurves(), dtlserrors.ErrEmptyEllipticCurves},
 	})
 }
 
@@ -343,10 +342,8 @@ func TestOptionImmutability(t *testing.T) {
 	certs := []tls.Certificate{cert}
 	suites := []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}
 	schemes := []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256}
-	profiles := []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}
 	protocols := []string{"h2", "http/1.1"}
 	curves := []elliptic.Curve{elliptic.P256}
-	identifier := []byte{0x01, 0x02, 0x03}
 	expectedScheme, err := signaturehash.ParseSignatureSchemes(schemes, false)
 	require.NoError(t, err)
 	tests := map[string]struct {
@@ -355,13 +352,11 @@ func TestOptionImmutability(t *testing.T) {
 		got    func(*Conn) any
 		want   any
 	}{
-		"certificates":            {[]ClientOption{WithCertificates(certs...)}, func() { _ = append(certs, cert) }, func(c *Conn) any { return len(c.handshakeConfig.LocalCertificates) }, 1},
-		"cipherSuites":            {[]ClientOption{WithCipherSuites(suites...)}, func() { suites[0] = cryptosuite.TLS_AES_256_GCM_SHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalCipherSuites[0].ID() }, suites[0]},
-		"signatureSchemes":        {[]ClientOption{WithSignatureSchemes(schemes...)}, func() { schemes[0] = tls.ECDSAWithP384AndSHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalSignatureSchemes[0] }, expectedScheme[0]},
-		"srtpProtectionProfiles":  {[]ClientOption{WithSRTPProtectionProfiles(profiles...)}, func() { profiles[0] = SRTP_AES128_CM_HMAC_SHA1_32 }, func(c *Conn) any { return c.handshakeConfig.LocalSRTPProtectionProfiles[0] }, profiles[0]},
-		"SupportedProtocols":      {[]ClientOption{WithSupportedProtocols(protocols...)}, func() { protocols[0] = "grpc" }, func(c *Conn) any { return c.handshakeConfig.SupportedProtocols }, []string{"h2", "http/1.1"}},
-		"EllipticCurves":          {[]ClientOption{WithEllipticCurves(curves...)}, func() { curves[0] = elliptic.P384 }, func(c *Conn) any { return c.handshakeConfig.EllipticCurves[0] }, curves[0]},
-		"srtpMasterKeyIdentifier": {[]ClientOption{WithSRTPMasterKeyIdentifier(identifier)}, func() { identifier[0] = 0xFF }, func(c *Conn) any { return c.handshakeConfig.LocalSRTPMasterKeyIdentifier }, []byte{0x01, 0x02, 0x03}},
+		"certificates":       {[]ClientOption{WithCertificates(certs...)}, func() { _ = append(certs, cert) }, func(c *Conn) any { return len(c.handshakeConfig.LocalCertificates) }, 1},
+		"cipherSuites":       {[]ClientOption{WithCipherSuites(suites...)}, func() { suites[0] = cryptosuite.TLS_AES_256_GCM_SHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalCipherSuites[0].ID() }, suites[0]},
+		"signatureSchemes":   {[]ClientOption{WithSignatureSchemes(schemes...)}, func() { schemes[0] = tls.ECDSAWithP384AndSHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalSignatureSchemes[0] }, expectedScheme[0]},
+		"SupportedProtocols": {[]ClientOption{WithSupportedProtocols(protocols...)}, func() { protocols[0] = "grpc" }, func(c *Conn) any { return c.handshakeConfig.SupportedProtocols }, []string{"h2", "http/1.1"}},
+		"EllipticCurves":     {[]ClientOption{WithEllipticCurves(curves...)}, func() { curves[0] = elliptic.P384 }, func(c *Conn) any { return c.handshakeConfig.EllipticCurves[0] }, curves[0]},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -38,7 +38,6 @@ func TestExtensionPayloadRoundTrips(t *testing.T) {
 		{name: "max early data", value: MaxEarlyData{Size: 4096}, out: &MaxEarlyData{}},
 		{name: "certificate authorities", value: CertificateAuthorities{Authorities: [][]byte{[]byte("ca1"), []byte("ca2")}}, out: &CertificateAuthorities{}},
 		{name: "oid filters", value: OIDFilters{Filters: []OIDFilter{{OID: []byte{1, 2, 3}, Values: []byte{4, 5}}}}, out: &OIDFilters{}},
-		{name: "post handshake auth", value: PostHandshakeAuth{}, out: &PostHandshakeAuth{}},
 	}
 
 	for _, test := range tests {
@@ -143,6 +142,5 @@ func FuzzPayloadUnmarshal(f *testing.F) {
 		_ = (&MaxEarlyData{}).UnmarshalData(data)
 		_ = (&CertificateAuthorities{}).UnmarshalData(data)
 		_ = (&OIDFilters{}).UnmarshalData(data)
-		_ = (&PostHandshakeAuth{}).UnmarshalData(data)
 	})
 }

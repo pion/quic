@@ -6,7 +6,6 @@ package flight13
 import (
 	"bytes"
 	"context"
-	"errors"
 	"slices"
 
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
@@ -86,7 +85,6 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 
 func abortFlight3(flightCtx *handshakeContext, failure *flightParseFailure) (Flight, *alert.Alert, error) {
 	flightCtx.state.ResetConnectionIDs()
-	flightCtx.state.SetSRTPProtectionProfile(0)
 
 	return 0, failure.alert, failure.err
 }
@@ -122,7 +120,6 @@ func flight3PullServerHello(
 func processFlight3ServerHelloOffer(flightCtx *handshakeContext, pull serverHelloPull) *flightParseFailure {
 	if err := flightCtx.acceptECH(pull.items[0]); err != nil {
 		flightCtx.state.ResetConnectionIDs()
-		flightCtx.state.SetSRTPProtectionProfile(0)
 
 		return protectedFlightParseFailure(err)
 	}
@@ -249,7 +246,6 @@ func initializeFlight3HandshakeProtection(ctx context.Context, conn dtlsflight.C
 func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsflight.DecodedHandshakeCacheItem) *flightParseFailure {
 	flightCtx.state.RemoteCertificateRequest = nil
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
-	var srtpDecision negotiation.SRTPDecision
 	var encryptedExtensions *handshake.MessageEncryptedExtensions
 	for _, item := range items {
 		if item.Parsed == nil {
@@ -258,9 +254,7 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 		switch message := item.Parsed.Message.(type) {
 		case *handshake.MessageEncryptedExtensions:
 			encryptedExtensions = message
-			var failure *flightParseFailure
-			srtpDecision, failure = validateEncryptedExtensions(flightCtx, offer, message)
-			if failure != nil {
+			if failure := validateEncryptedExtensions(flightCtx, offer, message); failure != nil {
 				return failure
 			}
 		case *handshake13.MessageCertificateRequest:
@@ -270,7 +264,6 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 	if flightCtx.protectedHandshakeHandler == nil {
 		return newFlightParseFailure(alert.InternalError, dtlserrors.ErrHandshakeTranscriptHashNotSelected)
 	}
-	dtlsflight.CommitSRTP(flightCtx.state.Common, srtpDecision)
 	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 		return protectedFlightParseFailure(err)
 	}
@@ -420,22 +413,10 @@ func validateALPNResponse(ctx *handshakeContext, message *handshake.MessageEncry
 	return nil
 }
 
-func validateEncryptedExtensions(ctx *handshakeContext, offer negotiation.ClientHelloSnapshot, message *handshake.MessageEncryptedExtensions) (negotiation.SRTPDecision, *flightParseFailure) {
+func validateEncryptedExtensions(ctx *handshakeContext, offer negotiation.ClientHelloSnapshot, message *handshake.MessageEncryptedExtensions) *flightParseFailure {
 	if err := negotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
-		return negotiation.SRTPDecision{}, newFlightParseFailure(alert.UnsupportedExtension, err)
-	}
-	decision, err := negotiation.ValidateSRTPSelection(offer, message.Extensions, ctx.cfg.LocalSRTPProtectionProfiles)
-	if err != nil {
-		var dtlsAlert *alert.Alert
-		if !errors.As(err, &dtlsAlert) {
-			return decision, newFlightParseFailure(alert.InternalError, err)
-		}
-
-		return decision, &flightParseFailure{alert: dtlsAlert, err: err}
-	}
-	if failure := validateALPNResponse(ctx, message); failure != nil {
-		return decision, failure
+		return newFlightParseFailure(alert.UnsupportedExtension, err)
 	}
 
-	return decision, nil
+	return validateALPNResponse(ctx, message)
 }

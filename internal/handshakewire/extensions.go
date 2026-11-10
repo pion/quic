@@ -82,10 +82,6 @@ var extensionRegistry = map[extension.Type]map[Context]extensionPayloadFactory{
 	},
 	extension.TypeSupportedGroups:     {ContextClientHello: func() extensionPayloadValue { return &extension.SupportedGroups{} }, ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.SupportedGroups{} }},
 	extension.TypeSignatureAlgorithms: {ContextClientHello: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }, ContextCertificateRequest: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }},
-	extension.TypeUseSRTP: {
-		ContextClientHello:         func() extensionPayloadValue { return &extension.SRTPOffer{} },
-		ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.SRTPSelection{} },
-	},
 	extension.TypeALPN: {
 		ContextClientHello:         func() extensionPayloadValue { return &extension.ALPNOffer{} },
 		ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.ALPNSelection{} },
@@ -105,7 +101,6 @@ var extensionRegistry = map[extension.Type]map[Context]extensionPayloadFactory{
 	extension.TypePSKKeyExchangeModes:     {ContextClientHello: func() extensionPayloadValue { return &extension13.PSKKeyExchangeModes{} }},
 	extension.TypeCertificateAuthorities:  {ContextClientHello: func() extensionPayloadValue { return &extension13.CertificateAuthorities{} }, ContextCertificateRequest: func() extensionPayloadValue { return &extension13.CertificateAuthorities{} }},
 	extension.TypeOIDFilters:              {ContextCertificateRequest: func() extensionPayloadValue { return &extension13.OIDFilters{} }},
-	extension.TypePostHandshakeAuth:       {ContextClientHello: func() extensionPayloadValue { return &extension13.PostHandshakeAuth{} }},
 	extension.TypeSignatureAlgorithmsCert: {ContextClientHello: func() extensionPayloadValue { return &extension.CertificateSignatureAlgorithms{} }, ContextCertificateRequest: func() extensionPayloadValue { return &extension.CertificateSignatureAlgorithms{} }},
 	extension.TypeKeyShare: {
 		ContextClientHello:       func() extensionPayloadValue { return &extension13.ClientKeyShare{} },

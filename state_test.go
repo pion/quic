@@ -23,21 +23,15 @@ func TestStateRoundTripPreservesNegotiatedExtensions(t *testing.T) {
 	client, server := handshakePair(t, []ClientOption{
 		WithInsecureSkipVerify(true),
 		WithConnectionID(func() []byte { return []byte("client") }, CIDPathMigrationRRC),
-		WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
-		WithSRTPMasterKeyIdentifier([]byte{1}),
 	}, []ServerOption{
 		WithCertificates(cert),
 		WithConnectionID(func() []byte { return []byte("server") }, CIDPathMigrationRRC),
-		WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
-		WithSRTPMasterKeyIdentifier([]byte{2}),
 	})
 	require.NoError(t, client.configErr)
 	require.NoError(t, server.configErr)
 	require.NoError(t, client.handshakeError)
 	require.NoError(t, server.handshakeError)
 	t.Cleanup(func() { _ = client.conn.Close(); _ = server.conn.Close() })
-	peerMKI := bytes.Clone(server.conn.state.Common.RemoteSRTPMasterKeyIdentifier)
-	require.Equal(t, []byte{1}, peerMKI)
 
 	state, err := server.conn.ExportState()
 	require.NoError(t, err)
@@ -45,9 +39,7 @@ func TestStateRoundTripPreservesNegotiatedExtensions(t *testing.T) {
 	require.NoError(t, err)
 	var restored State
 	require.NoError(t, restored.UnmarshalBinary(data))
-	require.Equal(t, peerMKI, restored.peerSRTPMKI)
 	require.True(t, restored.rrcNegotiated)
-	require.Equal(t, SRTP_AES128_CM_HMAC_SHA1_80, restored.srtpProtectionProfile)
 }
 
 func TestUnmarshalBinaryRejectsDTLS12State(t *testing.T) {
@@ -76,13 +68,9 @@ func TestResume(t *testing.T) {
 				client, server := handshakePair(t, []ClientOption{
 					WithInsecureSkipVerify(true), WithCipherSuites(test.suite),
 					WithConnectionID(func() []byte { return []byte("client") }, CIDPathMigrationReject),
-					WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
-					WithSRTPMasterKeyIdentifier([]byte{1}),
 				}, []ServerOption{
 					WithCertificates(cert), WithCipherSuites(test.suite),
 					WithConnectionID(func() []byte { return []byte("server") }, CIDPathMigrationReject),
-					WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
-					WithSRTPMasterKeyIdentifier([]byte{2}),
 				})
 				require.NoError(t, client.configErr)
 				require.NoError(t, server.configErr)

@@ -15,7 +15,6 @@ import (
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/negotiation"
-	"github.com/pion/dtls/v4/internal/protocol/extension"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	"github.com/pion/transport/v5/replaydetector"
 )
@@ -33,9 +32,6 @@ type Common struct {
 	PeerCertificates          [][]byte
 	IdentityHint              []byte
 	NegotiatedProtocol        string
-
-	srtpProtectionProfile         atomic.Uint32 // Negotiated SRTPProtectionProfile
-	RemoteSRTPMasterKeyIdentifier []byte
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
@@ -184,14 +180,6 @@ func (s *Common) HighestRemoteEpoch() uint64 {
 	defer s.sequenceMu.Unlock()
 
 	return s.highestRemoteEpoch
-}
-
-func (s *Common) SetSRTPProtectionProfile(profile extension.SRTPProtectionProfile) {
-	s.srtpProtectionProfile.Store(uint32(profile))
-}
-
-func (s *Common) SRTPProtectionProfile() extension.SRTPProtectionProfile {
-	return extension.SRTPProtectionProfile(s.srtpProtectionProfile.Load()) //nolint:gosec // Stored profile is uint16.
 }
 
 func (s *Common) LocalConnectionID() []byte {

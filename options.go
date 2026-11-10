@@ -62,8 +62,6 @@ type dtlsConfig struct {
 	CipherSuites                  []cryptosuite.ID
 	SignatureSchemes              []tls.SignatureScheme
 	CertificateSignatureSchemes   []tls.SignatureScheme
-	SRTPProtectionProfiles        []SRTPProtectionProfile
-	SRTPMasterKeyIdentifier       []byte
 	ClientAuth                    ClientAuthType
 	FlightInterval                time.Duration
 	DisableRetransmitBackoff      bool
@@ -205,21 +203,6 @@ func WithSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 // For functional options, an explicitly empty slice is not allowed.
 func WithCertificateSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 	return sliceOption(func(c *dtlsConfig) *[]tls.SignatureScheme { return &c.CertificateSignatureSchemes }, schemes, dtlserrors.ErrEmptyCertificateSignatureSchemes)
-}
-
-// WithSRTPProtectionProfiles sets the SRTP protection profiles.
-// For functional options, an explicitly empty slice is not allowed.
-func WithSRTPProtectionProfiles(profiles ...SRTPProtectionProfile) Option {
-	return sliceOption(func(c *dtlsConfig) *[]SRTPProtectionProfile { return &c.SRTPProtectionProfiles }, profiles, dtlserrors.ErrEmptySRTPProtectionProfiles)
-}
-
-// WithSRTPMasterKeyIdentifier sets the SRTP master key identifier.
-func WithSRTPMasterKeyIdentifier(identifier []byte) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.SRTPMasterKeyIdentifier = slices.Clone(identifier)
-
-		return nil
-	})
 }
 
 // WithFlightInterval sets the flight interval for handshake messages.
@@ -837,8 +820,6 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		LocalCipherSuites:             configValues.cipherSuites,
 		LocalSignatureSchemes:         configValues.signatureSchemes,
 		LocalCertSignatureSchemes:     configValues.certificateSignatureSchemes,
-		LocalSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
-		LocalSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
 		ServerName:                    configValues.serverName,
 		SupportedProtocols:            config.SupportedProtocols,
 		ClientAuth:                    dtlsconfig.ClientAuthType(config.ClientAuth),

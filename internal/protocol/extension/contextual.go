@@ -4,7 +4,6 @@
 package extension
 
 import (
-	"bytes"
 	"encoding/binary"
 	"strings"
 
@@ -180,94 +179,6 @@ func unmarshalALPNProtocols(data []byte) ([]string, error) {
 	}
 
 	return protocols, nil
-}
-
-// SRTPOffer is the ClientHello use_srtp payload.
-type SRTPOffer struct {
-	ProtectionProfiles  []SRTPProtectionProfile
-	MasterKeyIdentifier []byte
-}
-
-func (SRTPOffer) ExtensionType() Type { return TypeUseSRTP }
-func (s SRTPOffer) MarshalSize() int {
-	return 3 + (2 * len(s.ProtectionProfiles)) + len(s.MasterKeyIdentifier)
-}
-
-func (s SRTPOffer) MarshalData() ([]byte, error) {
-	return marshalSRTPPayload(s.ProtectionProfiles, s.MasterKeyIdentifier)
-}
-
-func (s *SRTPOffer) UnmarshalData(data []byte) error {
-	profiles, mki, err := unmarshalSRTPPayload(data)
-	if err != nil {
-		return err
-	}
-	s.ProtectionProfiles, s.MasterKeyIdentifier = profiles, mki
-
-	return nil
-}
-
-// SRTPSelection is the server's single selected SRTP profile.
-type SRTPSelection struct {
-	ProtectionProfile   SRTPProtectionProfile
-	MasterKeyIdentifier []byte
-}
-
-func (SRTPSelection) ExtensionType() Type { return TypeUseSRTP }
-func (s SRTPSelection) MarshalSize() int  { return 5 + len(s.MasterKeyIdentifier) }
-
-func (s SRTPSelection) MarshalData() ([]byte, error) {
-	return marshalSRTPPayload([]SRTPProtectionProfile{s.ProtectionProfile}, s.MasterKeyIdentifier)
-}
-
-func (s *SRTPSelection) UnmarshalData(data []byte) error {
-	profiles, mki, err := unmarshalSRTPPayload(data)
-	if err != nil || len(profiles) != 1 {
-		return dtlserrors.ErrLengthMismatch
-	}
-	s.ProtectionProfile, s.MasterKeyIdentifier = profiles[0], mki
-
-	return nil
-}
-
-func marshalSRTPPayload(profiles []SRTPProtectionProfile, mki []byte) ([]byte, error) {
-	if len(profiles) == 0 || len(profiles) > 0x7fff {
-		return nil, dtlserrors.ErrUseSRTPDataTooLarge
-	}
-	if len(mki) > 255 {
-		return nil, dtlserrors.ErrMasterKeyIdentifierTooLarge
-	}
-
-	out := make([]byte, 2, 3+(len(profiles)*2)+len(mki))
-	binary.BigEndian.PutUint16(out, uint16(len(profiles)*2)) //nolint:gosec // profile count is bounded above.
-	for _, profile := range profiles {
-		out = binary.BigEndian.AppendUint16(out, uint16(profile))
-	}
-	out = append(out, byte(len(mki))) //nolint:gosec // length is bounded above.
-	out = append(out, mki...)
-
-	return out, nil
-}
-
-func unmarshalSRTPPayload(data []byte) ([]SRTPProtectionProfile, []byte, error) {
-	if len(data) < 3 {
-		return nil, nil, dtlserrors.ErrBufferTooSmall
-	}
-	profilesLen := int(binary.BigEndian.Uint16(data))
-	if profilesLen == 0 || profilesLen%2 != 0 || 2+profilesLen >= len(data) {
-		return nil, nil, dtlserrors.ErrLengthMismatch
-	}
-	mkiLen := int(data[2+profilesLen])
-	if 3+profilesLen+mkiLen != len(data) {
-		return nil, nil, dtlserrors.ErrLengthMismatch
-	}
-
-	profiles := make([]SRTPProtectionProfile, 0, profilesLen/2)
-	for offset := 2; offset < 2+profilesLen; offset += 2 {
-		profiles = append(profiles, SRTPProtectionProfile(binary.BigEndian.Uint16(data[offset:])))
-	}
-
-	return profiles, bytes.Clone(data[3+profilesLen:]), nil
 }
 
 // SupportedGroups is the supported_groups payload.

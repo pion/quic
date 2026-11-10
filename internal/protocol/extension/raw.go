@@ -18,7 +18,6 @@ const (
 	TypeServerName              Type = 0
 	TypeSupportedGroups         Type = 10
 	TypeSignatureAlgorithms     Type = 13
-	TypeUseSRTP                 Type = 14
 	TypeALPN                    Type = 16
 	TypePadding                 Type = 21
 	TypePreSharedKey            Type = 41
@@ -28,7 +27,6 @@ const (
 	TypePSKKeyExchangeModes     Type = 45
 	TypeCertificateAuthorities  Type = 47
 	TypeOIDFilters              Type = 48
-	TypePostHandshakeAuth       Type = 49
 	TypeSignatureAlgorithmsCert Type = 50
 	TypeKeyShare                Type = 51
 	TypeConnectionID            Type = 54

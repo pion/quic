@@ -506,13 +506,12 @@ func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 
 	return &dtlsconfig.HandshakeConfig{
-		LocalCipherSuites:           []dtlsconfig.CipherSuite{cipherSuite},
-		EllipticCurves:              testCurves13,
-		InitialRetransmitInterval:   time.Second,
-		Log:                         loggerFactory.NewLogger("dtls"),
-		LocalSignatureSchemes:       signaturehash.Algorithms(),
-		LocalCertSignatureSchemes:   nil,
-		LocalSRTPProtectionProfiles: nil,
+		LocalCipherSuites:         []dtlsconfig.CipherSuite{cipherSuite},
+		EllipticCurves:            testCurves13,
+		InitialRetransmitInterval: time.Second,
+		Log:                       loggerFactory.NewLogger("dtls"),
+		LocalSignatureSchemes:     signaturehash.Algorithms(),
+		LocalCertSignatureSchemes: nil,
 	}
 }
 

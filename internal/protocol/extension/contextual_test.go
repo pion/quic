@@ -25,8 +25,6 @@ func TestContextualPayloads(t *testing.T) {
 		{name: "server name ack", value: ServerNameAck{}, out: &ServerNameAck{}},
 		{name: "alpn offer", value: ALPNOffer{Protocols: []string{"h2", "http/1.1"}}, out: &ALPNOffer{}},
 		{name: "alpn selection", value: ALPNSelection{Protocol: "h2"}, out: &ALPNSelection{}},
-		{name: "srtp offer", value: SRTPOffer{ProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AEAD_AES_128_GCM}, MasterKeyIdentifier: []byte{1, 2}}, out: &SRTPOffer{}},
-		{name: "srtp selection", value: SRTPSelection{ProtectionProfile: SRTP_AES128_CM_HMAC_SHA1_80, MasterKeyIdentifier: []byte{3}}, out: &SRTPSelection{}},
 		{name: "supported groups preserve unknown", value: SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519, elliptic.Curve(0xfafa)}}, out: &SupportedGroups{}},
 		{name: "signature algorithms preserve unknown", value: SignatureAlgorithms{Schemes: []uint16{0x0403, 0xfafa}}, out: &SignatureAlgorithms{}},
 		{name: "certificate signature algorithms", value: CertificateSignatureAlgorithms{Schemes: []uint16{0x0804}}, out: &CertificateSignatureAlgorithms{}},
@@ -52,7 +50,6 @@ func TestContextualFormValidation(t *testing.T) {
 	assert.ErrorIs(t, (&ServerNameAck{}).UnmarshalData([]byte{0}), dtlserrors.ErrLengthMismatch)
 	assert.ErrorIs(t, (&ServerNameOffer{}).UnmarshalData(nil), dtlserrors.ErrInvalidSNIFormat)
 	assert.ErrorIs(t, (&ALPNSelection{}).UnmarshalData([]byte{0, 4, 1, 'a', 1, 'b'}), ErrALPNInvalidFormat)
-	assert.ErrorIs(t, (&SRTPSelection{}).UnmarshalData([]byte{0, 4, 0, 1, 0, 2, 0}), dtlserrors.ErrLengthMismatch)
 	assert.ErrorIs(t, (&SupportedGroups{}).UnmarshalData([]byte{0, 1, 0}), dtlserrors.ErrLengthMismatch)
 }
 
@@ -65,8 +62,6 @@ func FuzzContextualPayloadUnmarshal(f *testing.F) {
 		_ = (&ServerNameAck{}).UnmarshalData(data)
 		_ = (&ALPNOffer{}).UnmarshalData(data)
 		_ = (&ALPNSelection{}).UnmarshalData(data)
-		_ = (&SRTPOffer{}).UnmarshalData(data)
-		_ = (&SRTPSelection{}).UnmarshalData(data)
 		_ = (&SupportedGroups{}).UnmarshalData(data)
 		_ = (&SignatureAlgorithms{}).UnmarshalData(data)
 		_ = (&CertificateSignatureAlgorithms{}).UnmarshalData(data)

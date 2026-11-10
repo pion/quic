@@ -81,18 +81,11 @@ func FuzzExtensionSupportedGroupsUnmarshal(f *testing.F) {
 	fuzzWirePayload(f, extension.TypeSupportedGroups, func() payloadValue { return &extension.SupportedGroups{} }, []byte{0x00, 0x0a, 0x00, 0x04, 0x00, 0x02, 0x00, 0x1d}, []byte{0x00, 0x0a, 0x00, 0x04, 0x00, 0x02, 0xfa, 0xfa})
 }
 
-// FuzzExtensionSupportedPointFormatsUnmarshal exercises ec_point_formats payloads.
-// FuzzExtensionUseSRTPUnmarshal exercises use_srtp payloads.
-func FuzzExtensionUseSRTPUnmarshal(f *testing.F) {
-	fuzzWirePayload(f, extension.TypeUseSRTP, func() payloadValue { return &extension.SRTPOffer{} }, []byte{0x00, 0x0e, 0x00, 0x05, 0x00, 0x02, 0x00, 0x01, 0x00}, []byte{0x00, 0x0e, 0x00, 0x0a, 0x00, 0x02, 0x00, 0x01, 0x05, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e})
-}
-
 // FuzzPskKeyExchangeModesUnmarshal exercises psk_key_exchange_modes payloads.
 func FuzzPskKeyExchangeModesUnmarshal(f *testing.F) {
 	fuzzWirePayload(f, extension.TypePSKKeyExchangeModes, func() payloadValue { return &extension13.PSKKeyExchangeModes{} }, []byte{0x00, 0x2d, 0x00, 0x02, 0x01, 0x00}, []byte{0x00, 0x2d, 0x00, 0x01, 0x00})
 }
 
-// FuzzRenegotiationInfoUnmarshal exercises renegotiation_info payloads.
 // FuzzServerNameUnmarshal exercises ClientHello server_name payloads.
 func FuzzServerNameUnmarshal(f *testing.F) {
 	fuzzWirePayload(f, extension.TypeServerName, func() payloadValue { return &extension.ServerNameOffer{} }, []byte{0x00, 0x00, 0x00, 0x10, 0x00, 0x0e, 0x00, 0x00, 0x0b, 't', 'e', 's', 't', '.', 'd', 'o', 'm', 'a', 'i', 'n'}, []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x00})

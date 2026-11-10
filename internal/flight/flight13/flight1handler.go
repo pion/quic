@@ -27,7 +27,6 @@ func flight1Generate(
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 	state.ResetConnectionIDs()
-	state.SetSRTPProtectionProfile(0)
 	state.LocalClientHelloSnapshots.Reset()
 
 	state.SetLocalEpoch(EpochInitial)
@@ -84,10 +83,6 @@ func generateInitialClientHello(conn dtlsflight.Conn, flightCtx *handshakeContex
 
 	if cfg.SendServerName() {
 		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
-	}
-
-	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.SRTPOffer{ProtectionProfiles: cfg.LocalSRTPProtectionProfiles, MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier})
 	}
 
 	if cfg.ConnectionIDGenerator != nil {

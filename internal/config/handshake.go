@@ -23,7 +23,6 @@ import (
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
-	"github.com/pion/dtls/v4/internal/protocol/extension"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	internalstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/logging"
@@ -40,8 +39,7 @@ const (
 )
 
 type (
-	CipherSuite           = cryptosuite.Suite
-	SRTPProtectionProfile = extension.SRTPProtectionProfile
+	CipherSuite = cryptosuite.Suite
 )
 
 type ClientHelloInfo struct {
@@ -106,8 +104,6 @@ type HandshakeConfig struct {
 	LocalCipherSuites             []CipherSuite
 	LocalSignatureSchemes         []signaturehash.Algorithm
 	LocalCertSignatureSchemes     []signaturehash.Algorithm
-	LocalSRTPProtectionProfiles   []SRTPProtectionProfile
-	LocalSRTPMasterKeyIdentifier  []byte
 	ServerName                    string
 	SupportedProtocols            []string
 	ClientAuth                    ClientAuthType
