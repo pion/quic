@@ -13,7 +13,6 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	"github.com/pion/dtls/v4/internal/crypto/selfsign"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,21 +72,17 @@ func TestClientCertificateSignatureSchemes(t *testing.T) {
 
 	for _, testCase := range []struct {
 		name     string
-		version  protocol.Version
 		scheme   tls.SignatureScheme
 		callback bool
 	}{
-		{"DTLS12/automatic", protocol.Version1_2, tls.PKCS1WithSHA256, false},
-		{"DTLS12/callback", protocol.Version1_2, tls.PKCS1WithSHA256, true},
-		{"DTLS13/automatic", protocol.Version1_3, tls.PSSWithSHA256, false},
-		{"DTLS13/callback", protocol.Version1_3, tls.PSSWithSHA256, true},
+		{"DTLS13/automatic", tls.PSSWithSHA256, false},
+		{"DTLS13/callback", tls.PSSWithSHA256, true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			clientTransport, serverTransport := packetPipe()
 			t.Cleanup(func() { _ = clientTransport.Close(); _ = serverTransport.Close() })
 			clientOptions := []ClientOption{
 				WithCertificates(ecdsaCertificate, rsaCertificate), WithInsecureSkipVerify(true),
-				WithMinVersion(testCase.version), WithMaxVersion(testCase.version),
 			}
 			requests := make(chan *CertificateRequestInfo, 1)
 			if testCase.callback {
@@ -107,7 +102,7 @@ func TestClientCertificateSignatureSchemes(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = client.Close() })
 			server, err := Server(serverTransport, serverTransport.RemoteAddr(), WithCertificates(rsaCertificate), WithClientAuth(RequireAnyClientCert),
-				WithSignatureSchemes(testCase.scheme), WithMinVersion(testCase.version), WithMaxVersion(testCase.version))
+				WithSignatureSchemes(testCase.scheme))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = server.Close() })
 
@@ -125,7 +120,6 @@ func TestClientCertificateSignatureSchemes(t *testing.T) {
 				select {
 				case info := <-requests:
 					require.Equal(t, []tls.SignatureScheme{testCase.scheme}, info.SignatureSchemes)
-					require.Equal(t, testCase.version, info.version)
 				default:
 					require.FailNow(t, "client certificate callback was not called")
 				}

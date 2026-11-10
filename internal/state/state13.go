@@ -133,8 +133,7 @@ type KeySchedule struct {
 	EarlySecret     []byte
 	HandshakeSecret []byte
 
-	// MasterSecret is TLS/DTLS 1.3's key-schedule master secret, not the
-	// DTLS 1.2 PRF master_secret.
+	// MasterSecret is the TLS 1.3 key-schedule Master Secret.
 	MasterSecret []byte
 
 	HandshakeTraffic TrafficSecrets
@@ -159,8 +158,7 @@ type KeySchedule struct {
 // Negotiated must not be inferred from either
 // CID length. [4]
 //
-// The initial CID values remain in Common so a dual-stack ClientHello can be
-// handed to DTLS 1.2 without losing its offer. The directional state here is
+// The initial CID values remain in Common. The directional state here is
 // separate because an active DTLS 1.3 CID can later change through the
 // messages defined by RFC 9147, Section 9 [1].
 //
@@ -277,12 +275,6 @@ func (s *State13) AdvanceHandshakeRecvSequence() {
 	s.sequenceMu.Lock()
 	defer s.sequenceMu.Unlock()
 	s.HandshakeRecvSequence++
-}
-
-// ShouldWrapConnectionID reports whether outgoing records should use the
-// legacy DTLS 1.2 CID record encoding.
-func (*State13) ShouldWrapConnectionID() bool {
-	return false
 }
 
 // ResetConnectionIDs clears the connection IDs and CID state.

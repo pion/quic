@@ -7,10 +7,8 @@ import (
 	"crypto/fips140"
 	"errors"
 	"net"
-	"slices"
 	"sync/atomic"
 
-	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/protocol"
@@ -126,17 +124,7 @@ func Resume(state *State, conn net.PacketConn, rAddr net.Addr, opts ...Option) (
 	if err != nil {
 		return nil, err
 	}
-	version := state.version
-	if version == 0 {
-		version = protocol.Version1_2
-	}
-	if config.MinVersion == 0 {
-		config.MinVersion = version
-	}
-	if config.MaxVersion == 0 {
-		config.MaxVersion = version
-	}
-	if !slices.Contains(dtlsconfig.SupportedVersionsRange(config.MinVersion, config.MaxVersion), version) {
+	if state.version != protocol.Version1_3 {
 		return nil, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 

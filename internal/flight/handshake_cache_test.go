@@ -6,7 +6,6 @@ package flight_test
 import (
 	"testing"
 
-	"github.com/pion/dtls/v4/internal/ciphersuite"
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
@@ -14,108 +13,10 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
-	handshake12 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls12"
+	handshake13 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestClientHelloRetransmit(t *testing.T) {
-	const messageLength = 4
-
-	makePacket := func(sequence uint16, offset uint32, fragment string) []byte {
-		t.Helper()
-		fragmentLength := len(fragment)
-		if fragmentLength > messageLength {
-			assert.Fail(t, "test fragment exceeds the ClientHello length")
-
-			return nil
-		}
-
-		header := handshake.Header{
-			Type:            handshake.TypeClientHello,
-			MessageSequence: sequence,
-			Length:          messageLength,
-			FragmentOffset:  offset,
-			FragmentLength:  uint32(fragmentLength),
-		}
-		raw, err := header.Marshal()
-		assert.NoError(t, err)
-
-		return append(raw, fragment...)
-	}
-
-	original := makePacket(1, 0, "abcd")
-	firstFragment := makePacket(1, 0, "ab")
-	lastFragment := makePacket(1, 2, "cd")
-
-	type step struct {
-		packet       []byte
-		wantComplete bool
-	}
-
-	for _, testCase := range []struct {
-		name  string
-		steps []step
-	}{
-		{
-			name: "complete",
-			steps: []step{
-				{packet: original, wantComplete: true},
-				{packet: original, wantComplete: true},
-			},
-		},
-		{
-			name:  "older flight",
-			steps: []step{{packet: makePacket(0, 0, "abcd")}},
-		},
-		{
-			name:  "changed content",
-			steps: []step{{packet: makePacket(1, 0, "abce")}},
-		},
-		{
-			name: "fragmented",
-			steps: []step{
-				{packet: firstFragment},
-				{packet: lastFragment, wantComplete: true},
-			},
-		},
-		{
-			name: "reordered",
-			steps: []step{
-				{packet: lastFragment},
-				{packet: firstFragment, wantComplete: true},
-			},
-		},
-		{
-			name: "overlapping fragments",
-			steps: []step{
-				{packet: firstFragment},
-				{packet: makePacket(1, 1, "bc")},
-				{packet: lastFragment, wantComplete: true},
-			},
-		},
-		{
-			name: "repeated partial",
-			steps: []step{
-				{packet: firstFragment},
-				{packet: firstFragment},
-			},
-		},
-		{
-			name:  "truncated",
-			steps: []step{{packet: original[:len(original)-1]}},
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			cache := dtlsflight.NewCache()
-			cache.Push(original, 0, 1, handshake.TypeClientHello, true)
-
-			for i, step := range testCase.steps {
-				assert.Equal(t, step.wantComplete, cache.IsClientHelloRetransmit(step.packet), "step %d", i)
-			}
-		})
-	}
-}
 
 func cacheItem(typ handshake.Type, client bool, epoch uint64, sequence uint16, data byte) dtlsflight.HandshakeCacheItem {
 	return dtlsflight.HandshakeCacheItem{Typ: typ, IsClient: client, Epoch: epoch, MessageSequence: sequence, Data: []byte{data}}
@@ -227,7 +128,7 @@ func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
 	cache.Push(rawServerHello, 0, 1, handshake.TypeServerHello, false)
 	cache.Push(rawClientHello, 0, 0, handshake.TypeClientHello, true)
 
-	pull := cache.FullPullMapItems(0, nil,
+	pull := cache.FullPullMapItems(0,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false},
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false, Optional: false},
 	)
@@ -245,7 +146,7 @@ func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
 	assert.Same(t, pull.Messages[handshake.TypeClientHello], pull.Items[0].Parsed.Message)
 	assert.Same(t, pull.Messages[handshake.TypeServerHello], pull.Items[1].Parsed.Message)
 
-	secondPull := cache.FullPullMapItems(0, nil,
+	secondPull := cache.FullPullMapItems(0,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false},
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false, Optional: false},
 	)
@@ -261,7 +162,7 @@ func TestHandshakeCachePullResultDistinguishesIncompleteAndMalformed(t *testing.
 	}
 
 	t.Run("missing", func(t *testing.T) {
-		pull := dtlsflight.NewCache().FullPullMapItems(7, nil, rule)
+		pull := dtlsflight.NewCache().FullPullMapItems(7, rule)
 		assert.False(t, pull.Ready)
 		assert.NoError(t, pull.Err)
 		assert.Equal(t, 7, pull.NextSequence)
@@ -272,7 +173,7 @@ func TestHandshakeCachePullResultDistinguishesIncompleteAndMalformed(t *testing.
 		cache := dtlsflight.NewCache()
 		cache.Push(raw, 0, 1, handshake.TypeClientHello, true)
 
-		pull := cache.FullPullMapItems(0, nil, rule)
+		pull := cache.FullPullMapItems(0, rule)
 		assert.False(t, pull.Ready)
 		assert.NoError(t, pull.Err)
 		assert.Equal(t, 0, pull.NextSequence)
@@ -282,7 +183,7 @@ func TestHandshakeCachePullResultDistinguishesIncompleteAndMalformed(t *testing.
 		cache := dtlsflight.NewCache()
 		cache.Push([]byte{byte(handshake.TypeClientHello)}, 0, 0, handshake.TypeClientHello, true)
 
-		pull := cache.FullPullMapItems(0, nil, rule)
+		pull := cache.FullPullMapItems(0, rule)
 		assert.True(t, pull.Ready)
 		assert.ErrorIs(t, pull.Err, dtlserrors.ErrBufferTooSmall)
 		var got *alert.Alert
@@ -320,7 +221,7 @@ func TestHandshakeCachePullValidatesMetadataAndHeader(t *testing.T) {
 			cache := dtlsflight.NewCache()
 			cache.Push(test.data, 0, test.seq, test.typ, true)
 
-			pull := cache.FullPullMapItems(0, nil, rule)
+			pull := cache.FullPullMapItems(0, rule)
 			require.True(t, pull.Ready)
 			assert.ErrorIs(t, pull.Err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 			var got *alert.Alert
@@ -335,7 +236,7 @@ func TestHandshakeCachePullPreservesExtensionAlert(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeClientHello, true)
 
-	pull := cache.FullPullMapItems(0, nil, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false})
+	pull := cache.FullPullMapItems(0, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false})
 	require.True(t, pull.Ready)
 	assert.ErrorIs(t, pull.Err, dtlserrors.ErrDuplicateExtension)
 	var got *alert.Alert
@@ -347,7 +248,7 @@ func TestHandshakeCachePullRejectsUnexpectedMessageAtRequiredSequence(t *testing
 	cache := dtlsflight.NewCache()
 	cache.Push([]byte{byte(handshake.TypeServerHello)}, 0, 0, handshake.TypeServerHello, true)
 
-	pull := cache.FullPullMapItems(0, nil, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false})
+	pull := cache.FullPullMapItems(0, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false})
 	require.True(t, pull.Ready)
 	assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
 	var got *alert.Alert
@@ -356,7 +257,7 @@ func TestHandshakeCachePullRejectsUnexpectedMessageAtRequiredSequence(t *testing
 }
 
 func TestHandshakeCachePullOptionalRules(t *testing.T) {
-	helloVerifyRule := dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: 0, IsClient: false, Optional: true}
+	optionalRule := dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeNewSessionTicket, Epoch: 0, IsClient: false, Optional: true}
 	serverHelloRule := dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false, Optional: true}
 
 	t.Run("skip to later rule", func(t *testing.T) {
@@ -365,69 +266,18 @@ func TestHandshakeCachePullOptionalRules(t *testing.T) {
 		cache := dtlsflight.NewCache()
 		cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
 
-		pull := cache.FullPullMapItems(0, nil, helloVerifyRule, serverHelloRule)
+		pull := cache.FullPullMapItems(0, optionalRule, serverHelloRule)
 		require.NoError(t, pull.Err)
 		require.True(t, pull.Ready)
 		require.IsType(t, &handshake.MessageServerHello{}, pull.Messages[handshake.TypeServerHello])
 	})
 
 	t.Run("unexpected message", func(t *testing.T) {
-		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake12.MessageCertificate{})
+		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake13.MessageCertificate{})
 		cache := dtlsflight.NewCache()
 		cache.Push(raw, 0, 0, handshake.TypeCertificate, false)
 
-		pull := cache.FullPullMapItems(0, nil, helloVerifyRule, serverHelloRule)
-		require.True(t, pull.Ready)
-		assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
-		var got *alert.Alert
-		require.ErrorAs(t, pull.Err, &got)
-		assert.Equal(t, alert.UnexpectedMessage, got.Description)
-	})
-}
-
-func TestHandshakeCacheFullPullMapOneOfItems(t *testing.T) {
-	rules := []dtlsflight.HandshakeCachePullRule{{Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false}, {Typ: handshake.TypeHelloVerifyRequest, Epoch: 0, IsClient: false}}
-
-	t.Run("allowed message", func(t *testing.T) {
-		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageHelloVerifyRequest{Version: protocol.Version1_2, Cookie: []byte{0x01}})
-		cache := dtlsflight.NewCache()
-		cache.Push(raw, 0, 0, handshake.TypeHelloVerifyRequest, false)
-
-		pull := cache.FullPullMapOneOfItems(0, nil, rules...)
-		require.NoError(t, pull.Err)
-		require.True(t, pull.Ready)
-		assert.Equal(t, 1, pull.NextSequence)
-		require.IsType(t, &handshake.MessageHelloVerifyRequest{}, pull.Messages[handshake.TypeHelloVerifyRequest])
-	})
-
-	t.Run("missing", func(t *testing.T) {
-		pull := dtlsflight.NewCache().FullPullMapOneOfItems(0, nil, rules...)
-		assert.False(t, pull.Ready)
-		assert.NoError(t, pull.Err)
-	})
-
-	t.Run("unexpected message", func(t *testing.T) {
-		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake12.MessageCertificate{})
-		cache := dtlsflight.NewCache()
-		cache.Push(raw, 0, 0, handshake.TypeCertificate, false)
-
-		pull := cache.FullPullMapOneOfItems(0, nil, rules...)
-		require.True(t, pull.Ready)
-		assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
-		var got *alert.Alert
-		require.ErrorAs(t, pull.Err, &got)
-		assert.Equal(t, alert.UnexpectedMessage, got.Description)
-	})
-
-	t.Run("conflicting allowed messages", func(t *testing.T) {
-		cipherSuiteID := uint16(cryptosuite.TLS_AES_128_GCM_SHA256)
-		serverHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0]})
-		helloVerifyRequest := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageHelloVerifyRequest{Version: protocol.Version1_2, Cookie: []byte{0x01}})
-		cache := dtlsflight.NewCache()
-		cache.Push(serverHello, 0, 0, handshake.TypeServerHello, false)
-		cache.Push(helloVerifyRequest, 0, 0, handshake.TypeHelloVerifyRequest, false)
-
-		pull := cache.FullPullMapOneOfItems(0, nil, rules...)
+		pull := cache.FullPullMapItems(0, optionalRule, serverHelloRule)
 		require.True(t, pull.Ready)
 		assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
 		var got *alert.Alert
@@ -440,17 +290,10 @@ func TestHandshakeCachePullRejectsSequenceOverflow(t *testing.T) {
 	rule := dtlsflight.HandshakeCachePullRule{
 		Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false,
 	}
-	pull := dtlsflight.NewCache().FullPullMapItems(-1, nil, rule)
+	pull := dtlsflight.NewCache().FullPullMapItems(-1, rule)
 	require.True(t, pull.Ready)
 	assert.ErrorIs(t, pull.Err, dtlserrors.ErrHandshakeSequenceOverflow)
 	var got *alert.Alert
-	require.ErrorAs(t, pull.Err, &got)
-	assert.Equal(t, alert.DecodeError, got.Description)
-
-	pull = dtlsflight.NewCache().FullPullMapOneOfItems(-1, nil, rule)
-	require.True(t, pull.Ready)
-	assert.ErrorIs(t, pull.Err, dtlserrors.ErrHandshakeSequenceOverflow)
-	got = nil
 	require.ErrorAs(t, pull.Err, &got)
 	assert.Equal(t, alert.DecodeError, got.Description)
 }
@@ -465,85 +308,4 @@ func marshalHandshakeCacheTestMessage(t *testing.T, seq uint16, message handshak
 	require.NoError(t, err)
 
 	return raw
-}
-
-func TestHandshakeCacheSessionHash(t *testing.T) {
-	for _, test := range []struct {
-		Name     string
-		Rule     []dtlsflight.HandshakeCachePullRule
-		Input    []dtlsflight.HandshakeCacheItem
-		Expected []byte
-	}{
-		{
-			Name: "Standard Handshake",
-			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: handshake.TypeClientHello, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: handshake.TypeServerHello, IsClient: false, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: handshake.TypeCertificate, IsClient: false, Epoch: 0, MessageSequence: 2, Data: []byte{0x02}},
-				{Typ: handshake.TypeServerKeyExchange, IsClient: false, Epoch: 0, MessageSequence: 3, Data: []byte{0x03}},
-				{Typ: handshake.TypeServerHelloDone, IsClient: false, Epoch: 0, MessageSequence: 4, Data: []byte{0x04}},
-				{Typ: handshake.TypeClientKeyExchange, IsClient: true, Epoch: 0, MessageSequence: 5, Data: []byte{0x05}},
-			},
-			Expected: []byte{0x17, 0xe8, 0x8d, 0xb1, 0x87, 0xaf, 0xd6, 0x2c, 0x16, 0xe5, 0xde, 0xbf, 0x3e, 0x65, 0x27, 0xcd, 0x00, 0x6b, 0xc0, 0x12, 0xbc, 0x90, 0xb5, 0x1a, 0x81, 0x0c, 0xd8, 0x0c, 0x2d, 0x51, 0x1f, 0x43},
-		},
-		{
-			Name: "Handshake With Client Cert Request",
-			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: handshake.TypeClientHello, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: handshake.TypeServerHello, IsClient: false, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: handshake.TypeCertificate, IsClient: false, Epoch: 0, MessageSequence: 2, Data: []byte{0x02}},
-				{Typ: handshake.TypeServerKeyExchange, IsClient: false, Epoch: 0, MessageSequence: 3, Data: []byte{0x03}},
-				{Typ: handshake.TypeCertificateRequest, IsClient: false, Epoch: 0, MessageSequence: 4, Data: []byte{0x04}},
-				{Typ: handshake.TypeServerHelloDone, IsClient: false, Epoch: 0, MessageSequence: 5, Data: []byte{0x05}},
-				{Typ: handshake.TypeClientKeyExchange, IsClient: true, Epoch: 0, MessageSequence: 6, Data: []byte{0x06}},
-			},
-			Expected: []byte{0x57, 0x35, 0x5a, 0xc3, 0x30, 0x3c, 0x14, 0x8f, 0x11, 0xae, 0xf7, 0xcb, 0x17, 0x94, 0x56, 0xb9, 0x23, 0x2c, 0xde, 0x33, 0xa8, 0x18, 0xdf, 0xda, 0x2c, 0x2f, 0xcb, 0x93, 0x25, 0x74, 0x9a, 0x6b},
-		},
-		{
-			Name: "Handshake Ignores after ClientKeyExchange",
-			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: handshake.TypeClientHello, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: handshake.TypeServerHello, IsClient: false, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: handshake.TypeCertificate, IsClient: false, Epoch: 0, MessageSequence: 2, Data: []byte{0x02}},
-				{Typ: handshake.TypeServerKeyExchange, IsClient: false, Epoch: 0, MessageSequence: 3, Data: []byte{0x03}},
-				{Typ: handshake.TypeCertificateRequest, IsClient: false, Epoch: 0, MessageSequence: 4, Data: []byte{0x04}},
-				{Typ: handshake.TypeServerHelloDone, IsClient: false, Epoch: 0, MessageSequence: 5, Data: []byte{0x05}},
-				{Typ: handshake.TypeClientKeyExchange, IsClient: true, Epoch: 0, MessageSequence: 6, Data: []byte{0x06}},
-				{Typ: handshake.TypeCertificateVerify, IsClient: true, Epoch: 0, MessageSequence: 7, Data: []byte{0x07}},
-				{Typ: handshake.TypeFinished, IsClient: true, Epoch: 1, MessageSequence: 7, Data: []byte{0x08}},
-				{Typ: handshake.TypeFinished, IsClient: false, Epoch: 1, MessageSequence: 7, Data: []byte{0x09}},
-			},
-			Expected: []byte{0x57, 0x35, 0x5a, 0xc3, 0x30, 0x3c, 0x14, 0x8f, 0x11, 0xae, 0xf7, 0xcb, 0x17, 0x94, 0x56, 0xb9, 0x23, 0x2c, 0xde, 0x33, 0xa8, 0x18, 0xdf, 0xda, 0x2c, 0x2f, 0xcb, 0x93, 0x25, 0x74, 0x9a, 0x6b},
-		},
-		{
-			Name: "Handshake Ignores wrong epoch",
-			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: handshake.TypeClientHello, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: handshake.TypeServerHello, IsClient: false, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: handshake.TypeCertificate, IsClient: false, Epoch: 0, MessageSequence: 2, Data: []byte{0x02}},
-				{Typ: handshake.TypeServerKeyExchange, IsClient: false, Epoch: 0, MessageSequence: 3, Data: []byte{0x03}},
-				{Typ: handshake.TypeCertificateRequest, IsClient: false, Epoch: 0, MessageSequence: 4, Data: []byte{0x04}},
-				{Typ: handshake.TypeServerHelloDone, IsClient: false, Epoch: 0, MessageSequence: 5, Data: []byte{0x05}},
-				{Typ: handshake.TypeClientKeyExchange, IsClient: true, Epoch: 0, MessageSequence: 6, Data: []byte{0x06}},
-				{Typ: handshake.TypeCertificateVerify, IsClient: true, Epoch: 0, MessageSequence: 7, Data: []byte{0x07}},
-				{Typ: handshake.TypeFinished, IsClient: true, Epoch: 0, MessageSequence: 7, Data: []byte{0xf0}},
-				{Typ: handshake.TypeFinished, IsClient: false, Epoch: 0, MessageSequence: 7, Data: []byte{0xf1}},
-				{Typ: handshake.TypeFinished, IsClient: true, Epoch: 1, MessageSequence: 7, Data: []byte{0x08}},
-				{Typ: handshake.TypeFinished, IsClient: false, Epoch: 1, MessageSequence: 7, Data: []byte{0x09}},
-				{Typ: handshake.TypeFinished, IsClient: true, Epoch: 0, MessageSequence: 7, Data: []byte{0xf0}},
-				{Typ: handshake.TypeFinished, IsClient: false, Epoch: 0, MessageSequence: 7, Data: []byte{0xf1}},
-			},
-			Expected: []byte{0x57, 0x35, 0x5a, 0xc3, 0x30, 0x3c, 0x14, 0x8f, 0x11, 0xae, 0xf7, 0xcb, 0x17, 0x94, 0x56, 0xb9, 0x23, 0x2c, 0xde, 0x33, 0xa8, 0x18, 0xdf, 0xda, 0x2c, 0x2f, 0xcb, 0x93, 0x25, 0x74, 0x9a, 0x6b},
-		},
-	} {
-		h := dtlsflight.NewCache()
-		for _, i := range test.Input {
-			h.Push(i.Data, i.Epoch, i.MessageSequence, i.Typ, i.IsClient)
-		}
-
-		cipherSuite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
-		verifyData, err := h.SessionHash(cipherSuite.HashFunc(), 0)
-		assert.NoError(t, err)
-		assert.Equal(t, test.Expected, verifyData, "handshakeCacheSessionHash")
-	}
 }

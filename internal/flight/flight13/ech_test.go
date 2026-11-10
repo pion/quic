@@ -157,7 +157,7 @@ func TestClientECHAcceptance(t *testing.T) {
 		wire := marshalProtectedTestHandshake(t, 0, server)
 		cache := dtlsflight.NewCache()
 		cache.Push(wire, 0, 0, handshake.TypeServerHello, false)
-		pull := cache.FullPullMapItems(0, ctx.state.CipherSuite, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello})
+		pull := cache.FullPullMapItems(0, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello})
 		require.NoError(t, pull.Err)
 		require.True(t, pull.Ready)
 		err = ctx.acceptECH(pull.Items[0])

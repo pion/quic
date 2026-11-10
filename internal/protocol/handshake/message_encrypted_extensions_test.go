@@ -175,7 +175,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		msg := &MessageEncryptedExtensions{}
 		err := msg.Unmarshal([]byte{
 			0x00, 0x04,
-			0x00, 0x17,
+			0x00, 0x2d, // psk_key_exchange_modes is ClientHello-only
 			0x00, 0x00,
 		})
 		assert.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)

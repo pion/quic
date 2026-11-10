@@ -65,7 +65,6 @@ type dtlsConfig struct {
 	SRTPProtectionProfiles        []SRTPProtectionProfile
 	SRTPMasterKeyIdentifier       []byte
 	ClientAuth                    ClientAuthType
-	ExtendedMasterSecret          ExtendedMasterSecretType
 	FlightInterval                time.Duration
 	DisableRetransmitBackoff      bool
 	InsecureSkipVerify            bool
@@ -91,8 +90,6 @@ type dtlsConfig struct {
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook func(handshake.Message) handshake.Message
 	OnConnectionAttempt           func(net.Addr) error
-	MinVersion                    protocol.Version
-	MaxVersion                    protocol.Version
 
 	customCipherSuites   func() []cryptosuite.Suite
 	pskClient            PSKClientCallback
@@ -121,7 +118,6 @@ func buildClientConfig(opts ...ClientOption) (*dtlsConfig, error) {
 func applyOptions[T any](isClient bool, opts []T, apply func(T, *dtlsConfig) error) (*dtlsConfig, error) {
 	cfg := &dtlsConfig{
 		isClient:               isClient,
-		ExtendedMasterSecret:   RequestExtendedMasterSecret,
 		FlightInterval:         time.Second,
 		MTU:                    defaultMTU,
 		ReceiveBufferSize:      defaultReceiveBufferSize,
@@ -226,12 +222,6 @@ func WithSRTPMasterKeyIdentifier(identifier []byte) Option {
 	})
 }
 
-// WithExtendedMasterSecret sets the extended master secret policy.
-// Returns an error if the type is invalid.
-func WithExtendedMasterSecret(ems ExtendedMasterSecretType) Option {
-	return valueOption(func(c *dtlsConfig) *ExtendedMasterSecretType { return &c.ExtendedMasterSecret }, ems, optionError(ems < RequestExtendedMasterSecret || ems > DisableExtendedMasterSecret, dtlserrors.ErrInvalidExtendedMasterSecretType))
-}
-
 // WithFlightInterval sets the flight interval for handshake messages.
 // Returns an error if the interval is not positive.
 func WithFlightInterval(interval time.Duration) Option {
@@ -248,19 +238,18 @@ type PSK struct {
 	Identity []byte
 	Key      []byte
 	// Hash is the DTLS 1.3 PSK hash: crypto.SHA256 or crypto.SHA384.
-	// Zero defaults to crypto.SHA256. It does not select the DTLS 1.2 cipher hash.
+	// Zero defaults to crypto.SHA256.
 	Hash crypto.Hash
 }
 
 // PSKClientCallback supplies the client's PSKs once per connection.
-// DTLS 1.3 offers all entries in order and DTLS 1.2 uses only the first.
-// An error aborts the handshake. The callback does not receive a DTLS 1.2 server hint.
+// All entries are offered in order. An error aborts the handshake.
 type PSKClientCallback func() ([]PSK, error)
 
 // PSKServerCallback selects a PSK from the client's offered identities.
 // The returned PSK must include an offered Identity, its Key, and Hash.
 // Return nil, nil if none match. An error aborts the handshake.
-// DTLS 1.2 supplies one identity. DTLS 1.3 may call again after a retry.
+// It may be called again after a HelloRetryRequest.
 type PSKServerCallback func(identities [][]byte) (*PSK, error)
 
 // PSKOption configures PSK-specific settings in WithPSK.
@@ -367,7 +356,7 @@ func WithECH(opts ...ECHOption) Option {
 }
 
 // WithECHConfigList sets the client's encoded ECHConfigList. A nil list disables
-// ECH. Unset version bounds default to DTLS 1.3. MinVersion must not be DTLS 1.2.
+// ECH.
 // Configs are validated during the handshake.
 // Rejection returns ECHRejectionError,Early data uses the same session-ticket and replay policy
 // as connections without ECH.
@@ -576,20 +565,6 @@ func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.
 	}, fn, optionError(fn == nil, dtlserrors.ErrNilClientHelloMessageHook))
 }
 
-// WithMinVersion sets the minimum DTLS version that is acceptable.
-// By default, DTLS 1.2 is used as the minimum.
-func WithMinVersion(version protocol.Version) Option {
-	return valueOption(func(c *dtlsConfig) *protocol.Version { return &c.MinVersion }, version,
-		optionError(version != protocol.Version1_2 && version != protocol.Version1_3, dtlserrors.ErrUnsupportedProtocolVersion))
-}
-
-// WithMaxVersion sets the maximum DTLS version that is acceptable.
-// By default, DTLS 1.3 is used as the maximum.
-func WithMaxVersion(version protocol.Version) Option {
-	return valueOption(func(c *dtlsConfig) *protocol.Version { return &c.MaxVersion }, version,
-		optionError(version != protocol.Version1_2 && version != protocol.Version1_3, dtlserrors.ErrUnsupportedProtocolVersion))
-}
-
 // serverOnlyOption wraps an apply function for server-only options.
 type serverOnlyOption func(*dtlsConfig) error
 
@@ -615,15 +590,15 @@ func WithGetCertificate(fn func(*ClientHelloInfo) (*tls.Certificate, error)) Ser
 	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(*ClientHelloInfo) (*tls.Certificate, error) { return &c.getCertificate }, fn, optionError(fn == nil, dtlserrors.ErrNilGetCertificate)))
 }
 
-// WithInsecureSkipVerifyHello skips hello verify phase on the server.
+// WithInsecureSkipVerifyHello skips the HelloRetryRequest cookie exchange on the server.
 // This has implication on DoS attack resistance.
 // This option is only applicable to servers.
 func WithInsecureSkipVerifyHello(skip bool) ServerOption {
 	return serverOnlyOption(valueOption(func(c *dtlsConfig) *bool { return &c.InsecureSkipVerifyHello }, skip))
 }
 
-// WithServerHelloMessageHook sets the server hello message hook for DTLS 1.2 and 1.3.
-// For DTLS 1.3, the hook is also called for HelloRetryRequest. It must preserve
+// WithServerHelloMessageHook sets the server hello message hook.
+// The hook is also called for HelloRetryRequest. It must preserve
 // the selected version, cipher suite, key share, PSK identity, and retry cookie.
 // Returns an error if the hook is nil.
 // This option is only applicable to servers.
@@ -633,8 +608,8 @@ func WithServerHelloMessageHook(fn func(handshake.MessageServerHello) handshake.
 	}, fn, optionError(fn == nil, dtlserrors.ErrNilServerHelloMessageHook)))
 }
 
-// WithCertificateRequestMessageHook sets the certificate request message hook for DTLS 1.2 and 1.3.
-// The hook receives a *dtls12.MessageCertificateRequest or *dtls13.MessageCertificateRequest.
+// WithCertificateRequestMessageHook sets the certificate request message hook.
+// The hook receives a *dtls13.MessageCertificateRequest.
 // The returned handshake message replaces the original message.
 // Returns an error if the hook is nil.
 // This option is only applicable to servers.
@@ -680,8 +655,6 @@ type connConfigValues struct {
 	paddingLengthGenerator      func(uint) uint
 	replayProtectionWindow      int
 	initialRetransmitInterval   time.Duration
-	minVersion                  protocol.Version
-	maxVersion                  protocol.Version
 	cipherSuites                []dtlsconfig.CipherSuite
 	signatureSchemes            []signaturehash.Algorithm
 	certificateSignatureSchemes []signaturehash.Algorithm
@@ -691,12 +664,7 @@ type connConfigValues struct {
 }
 
 func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
-	minVersion, maxVersion, err := effectiveProtocolVersionRange(config)
-	if err != nil {
-		return connConfigValues{}, err
-	}
-
-	cipherSuites, err := selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.pskEnabled(), minVersion, maxVersion)
+	cipherSuites, err := selectCipherSuites(config.CipherSuites, config.customCipherSuites)
 	if err != nil {
 		return connConfigValues{}, err
 	}
@@ -713,8 +681,6 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 		paddingLengthGenerator:      config.PaddingLengthGenerator,
 		replayProtectionWindow:      effectiveReplayProtectionWindow(config.ReplayProtectionWindow),
 		initialRetransmitInterval:   config.FlightInterval,
-		minVersion:                  minVersion,
-		maxVersion:                  maxVersion,
 		cipherSuites:                cipherSuites,
 		signatureSchemes:            signatureSchemes,
 		certificateSignatureSchemes: certSignatureSchemes,
@@ -800,24 +766,9 @@ func filterFIPSCurves(curves []elliptic.Curve) []elliptic.Curve {
 }
 
 // cipherSuiteFIPSApproved reports whether a suite's cipher comes from the Go FIPS
-// module. ChaCha20-Poly1305 and AES-CCM don't, so they're not approved in FIPS
-// mode; AES-GCM and AES-CBC are fine.
+// module. ChaCha20-Poly1305 does not, so it is not approved in FIPS mode.
 func cipherSuiteFIPSApproved(id cryptosuite.ID) bool {
-	switch id {
-	case cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-		cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-		cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256,
-		cryptosuite.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256,
-		cryptosuite.TLS_CHACHA20_POLY1305_SHA256,
-		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
-		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
-		cryptosuite.TLS_PSK_WITH_AES_128_CCM,
-		cryptosuite.TLS_PSK_WITH_AES_128_CCM_8,
-		cryptosuite.TLS_PSK_WITH_AES_256_CCM_8:
-		return false
-	default:
-		return true
-	}
+	return id != cryptosuite.TLS_CHACHA20_POLY1305_SHA256
 }
 
 func adaptVerifyConnection(verifyConnection func(*State) error) func(dtlsstate.Active) error {
@@ -872,7 +823,7 @@ func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo
 			signatureSchemes = append(signatureSchemes, tls.SignatureScheme(uint16(raw[0])<<8|uint16(raw[1])))
 		}
 
-		return getClientCertificate(&CertificateRequestInfo{CertificateTypes: info.CertificateTypes, AcceptableCAs: info.AcceptableCAs, SignatureSchemes: signatureSchemes, version: info.Version})
+		return getClientCertificate(&CertificateRequestInfo{AcceptableCAs: info.AcceptableCAs, SignatureSchemes: signatureSchemes})
 	}
 }
 
@@ -886,7 +837,6 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		LocalCipherSuites:             configValues.cipherSuites,
 		LocalSignatureSchemes:         configValues.signatureSchemes,
 		LocalCertSignatureSchemes:     configValues.certificateSignatureSchemes,
-		ExtendedMasterSecret:          dtlsconfig.ExtendedMasterSecretType(config.ExtendedMasterSecret),
 		LocalSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
 		LocalSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
 		ServerName:                    configValues.serverName,
@@ -896,7 +846,6 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		InsecureSkipVerify:            config.InsecureSkipVerify,
 		VerifyPeerCertificate:         config.VerifyPeerCertificate,
 		VerifyConnection:              adaptVerifyConnection(config.verifyConnection),
-		HasSessionStore:               config.sessionStore != nil,
 		MaxEarlyDataSize:              config.maxEarlyDataSize,
 		RootCAs:                       config.RootCAs,
 		ClientCAs:                     config.ClientCAs,
@@ -917,24 +866,8 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		ServerHelloMessageHook:        config.ServerHelloMessageHook,
 		CertificateRequestMessageHook: config.CertificateRequestMessageHook,
 		ResumeState:                   resumeState,
-		MinVersion:                    configValues.minVersion,
-		MaxVersion:                    configValues.maxVersion,
-	}
-	// Preserve an explicit ECH minimum for handshake validation, even when
-	// cipher-suite filtering narrowed the effective range to DTLS 1.3.
-	if config.echConfigList != nil && config.MinVersion != 0 {
-		handshakeConfig.MinVersion = config.MinVersion
 	}
 	if config.sessionStore != nil {
-		handshakeConfig.GetSession = func(key []byte) (dtlsstate.Session, error) {
-			session, err := config.sessionStore.Get(key)
-
-			return dtlsstate.Session(session), err
-		}
-		handshakeConfig.SetSession = func(key []byte, session dtlsstate.Session) error {
-			return config.sessionStore.Set(key, Session(session))
-		}
-		handshakeConfig.DelSession = config.sessionStore.Del
 		handshakeConfig.SetSessionTicket = func(key, id, secret, identity []byte, ticket dtlsstate.SessionTicket) error {
 			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, IdentityHint: identity, Ticket: &ticket, Version: 1, IsClient: config.isClient})
 		}
@@ -961,10 +894,6 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 	config.configurePSK(handshakeConfig)
 
 	return handshakeConfig
-}
-
-func (c *dtlsConfig) includeCertificateSuites() bool {
-	return !c.pskEnabled() || len(c.Certificates) > 0 || c.getCertificate != nil || c.getClientCertificate != nil
 }
 
 func (c *dtlsConfig) pskEnabled() bool {
@@ -1011,16 +940,6 @@ func (c *dtlsConfig) configurePSK(cfg *dtlsconfig.HandshakeConfig) {
 		cached = offered
 
 		return cached, nil
-	}
-	cfg.LocalPSKCallback = func([]byte) ([]byte, error) {
-		psks, err := cfg.GetPSKs()
-		if err != nil {
-			return nil, err
-		}
-		// DTLS 1.2 sends one identity, including an explicitly empty one.
-		cfg.LocalPSKIdentityHint = append([]byte{}, psks[0].Identity...)
-
-		return bytes.Clone(psks[0].Secret), nil
 	}
 }
 
@@ -1075,17 +994,6 @@ const (
 	RequireAndVerifyClientCert
 )
 
-// ExtendedMasterSecretType declares the policy the client and server
-// will follow for the Extended Master Secret extension.
-type ExtendedMasterSecretType int
-
-// ExtendedMasterSecretType enums.
-const (
-	RequestExtendedMasterSecret ExtendedMasterSecretType = iota
-	RequireExtendedMasterSecret
-	DisableExtendedMasterSecret
-)
-
 func validateConfig(config *dtlsConfig) error {
 	if config == nil {
 		return dtlserrors.ErrNoConfigProvided
@@ -1112,36 +1020,13 @@ func validateConfig(config *dtlsConfig) error {
 		}
 	}
 
-	minVersion, maxVersion, err := effectiveProtocolVersionRange(config)
-	if err != nil {
-		return err
-	}
-
-	_, err = selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.pskEnabled(), minVersion, maxVersion)
+	_, err := selectCipherSuites(config.CipherSuites, config.customCipherSuites)
 
 	return err
 }
 
-func defaultCipherSuitesForVersion(version protocol.Version) []cryptosuite.Suite {
-	var ids []cryptosuite.ID
-	switch version {
-	case protocol.Version1_3:
-		ids = []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_AES_256_GCM_SHA384, cryptosuite.TLS_CHACHA20_POLY1305_SHA256}
-	case protocol.Version1_2:
-		ids = []cryptosuite.ID{
-			cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-			cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-			cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-			cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-			cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		}
-	case protocol.Version1_0:
-		return nil
-	}
-
+func defaultCipherSuites() []cryptosuite.Suite {
+	ids := []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_AES_256_GCM_SHA384, cryptosuite.TLS_CHACHA20_POLY1305_SHA256}
 	suites := make([]cryptosuite.Suite, len(ids))
 	for i, id := range ids {
 		suites[i] = ciphersuite.ForID(id)
@@ -1150,14 +1035,7 @@ func defaultCipherSuitesForVersion(version protocol.Version) []cryptosuite.Suite
 	return suites
 }
 
-func filterCipherSuitesForVersion(
-	cipherSuites []cryptosuite.Suite,
-	version protocol.Version,
-) []cryptosuite.Suite {
-	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool { return !suite.Capabilities().SupportsVersion(version) })
-}
-
-func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, includeCertificateSuites, includePSKSuites bool, minVersion, maxVersion protocol.Version) ([]cryptosuite.Suite, error) {
+func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite) ([]cryptosuite.Suite, error) {
 	custom, customByID, err := customCipherSuiteRegistry(customCipherSuites)
 	if err != nil {
 		return nil, err
@@ -1170,9 +1048,7 @@ func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() 
 			return nil, err
 		}
 	} else {
-		for _, version := range dtlsconfig.SupportedVersionsRange(minVersion, maxVersion) {
-			cipherSuites = append(cipherSuites, defaultCipherSuitesForVersion(version)...)
-		}
+		cipherSuites = defaultCipherSuites()
 	}
 
 	// Without an explicit ID list, external suites are enabled ahead of the
@@ -1180,11 +1056,6 @@ func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() 
 	if selectedIDs == nil && len(custom) > 0 {
 		cipherSuites = append(append(make([]cryptosuite.Suite, 0, len(custom)+len(cipherSuites)), custom...), cipherSuites...)
 	}
-
-	versions := dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
-	cipherSuites = slices.DeleteFunc(cipherSuites, func(suite cryptosuite.Suite) bool {
-		return !slices.ContainsFunc(versions, suite.Capabilities().SupportsVersion)
-	})
 
 	// Drop ciphers the Go FIPS module can't provide when FIPS mode is on,
 	// mirroring effectiveEllipticCurves/filterFIPSCurves above.
@@ -1194,43 +1065,7 @@ func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() 
 		})
 	}
 
-	return filterCipherSuitesByAuthentication(cipherSuites, includeCertificateSuites, includePSKSuites)
-}
-
-func filterCipherSuitesByAuthentication(cipherSuites []cryptosuite.Suite, includeCertificateSuites, includePSKSuites bool) ([]cryptosuite.Suite, error) {
-	var foundCertificateSuite, foundPSKSuite, foundTrafficSuite bool
-	i := 0
-	for _, suite := range cipherSuites {
-		if suite.Capabilities().SupportsVersion(protocol.Version1_3) {
-			foundTrafficSuite = true
-			cipherSuites[i] = suite
-			i++
-
-			continue
-		}
-		switch {
-		case includeCertificateSuites && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate:
-			foundCertificateSuite = true
-		case includePSKSuites && suite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey:
-			foundPSKSuite = true
-		case suite.AuthenticationType() == cryptosuite.AuthenticationTypeAnonymous:
-		default:
-			continue
-		}
-		cipherSuites[i] = suite
-		i++
-	}
-
-	return validateCipherSuiteAuthentication(cipherSuites[:i], includeCertificateSuites, includePSKSuites, foundCertificateSuite, foundPSKSuite, foundTrafficSuite)
-}
-
-func validateCipherSuiteAuthentication(cipherSuites []cryptosuite.Suite, includeCertificateSuites, includePSKSuites, foundCertificateSuite, foundPSKSuite, foundTrafficSuite bool) ([]cryptosuite.Suite, error) {
-	switch {
-	case includeCertificateSuites && !foundCertificateSuite && !foundTrafficSuite:
-		return nil, dtlserrors.ErrNoAvailableCertificateCipherSuite
-	case includePSKSuites && !foundPSKSuite && !foundTrafficSuite:
-		return nil, dtlserrors.ErrNoAvailablePSKCipherSuite
-	case len(cipherSuites) == 0:
+	if len(cipherSuites) == 0 {
 		return nil, dtlserrors.ErrNoAvailableCipherSuites
 	}
 
@@ -1292,124 +1127,14 @@ func validateCipherSuite(suite cryptosuite.Suite) error {
 }
 
 func validateCipherSuiteVersion(suite cryptosuite.Suite) error {
-	switch suite.Capabilities().Version() {
-	case protocol.Version1_2:
-		if _, ok := suite.(cryptosuite.ConnectionSuite); !ok {
-			return dtlserrors.ErrInvalidCipherSuite
-		}
-	case protocol.Version1_3:
-		if _, ok := suite.(cryptosuite.TrafficSuite); !ok {
-			return dtlserrors.ErrInvalidCipherSuite
-		}
-	default:
+	if !suite.Capabilities().SupportsVersion(protocol.Version1_3) {
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+	if _, ok := suite.(cryptosuite.TrafficSuite); !ok {
 		return dtlserrors.ErrInvalidCipherSuite
 	}
 
 	return nil
-}
-
-// effectiveProtocolVersionRange restricts a configured version range to the
-// versions supported by explicitly selected cipher suites and curves. This
-// prevents advertising a version for which the local configuration cannot
-// complete a handshake.
-func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protocol.Version, error) {
-	minVersion, maxVersion := config.protocolVersionRange()
-	versions := dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
-
-	if cipherVersions := supportedCipherSuiteVersions(config.CipherSuites, config.customCipherSuites, versions); len(cipherVersions) != 0 {
-		versions = cipherVersions
-	}
-
-	curveVersions := supportedEllipticCurveVersions(config.EllipticCurves, dtlsconfig.SupportedVersionsRange(minVersion, maxVersion))
-	if len(config.EllipticCurves) != 0 && len(curveVersions) == 0 {
-		return 0, 0, dtlserrors.ErrUnsupportedEllipticCurveVersion
-	}
-	versions = intersectSupportedVersions(versions, curveVersions)
-
-	if len(versions) == 0 {
-		return 0, 0, dtlserrors.ErrNoCommonProtocolVersion
-	}
-
-	return versions[len(versions)-1], versions[0], nil
-}
-
-func (c *dtlsConfig) protocolVersionRange() (protocol.Version, protocol.Version) {
-	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(c.MinVersion, c.MaxVersion)
-	if c.echConfigList != nil && c.MinVersion == 0 {
-		minVersion = protocol.Version1_3
-	}
-	if (c.echConfigList != nil || len(c.echKeys) > 0 || c.getECHKeys != nil) && c.MaxVersion == 0 {
-		maxVersion = protocol.Version1_3
-	}
-
-	return minVersion, maxVersion
-}
-
-func supportedCipherSuiteVersions(suites []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, versions []protocol.Version) []protocol.Version {
-	if suites == nil {
-		return versions
-	}
-
-	customByID := make(map[cryptosuite.ID]cryptosuite.Suite)
-	if customCipherSuites != nil {
-		for _, suite := range customCipherSuites() {
-			if suite != nil {
-				customByID[suite.ID()] = suite
-			}
-		}
-	}
-	descriptors := make([]cryptosuite.Suite, 0, len(suites))
-	for _, id := range suites {
-		suite := customByID[id]
-		if suite == nil {
-			suite = ciphersuite.ForID(id)
-		}
-		if suite == nil {
-			return versions
-		}
-		descriptors = append(descriptors, suite)
-	}
-
-	return filterSupportedVersions(versions, func(version protocol.Version) bool {
-		return slices.ContainsFunc(descriptors, func(suite cryptosuite.Suite) bool { return suite.Capabilities().SupportsVersion(version) })
-	})
-}
-
-func supportedEllipticCurveVersions(
-	curves []elliptic.Curve,
-	versions []protocol.Version,
-) []protocol.Version {
-	if len(curves) == 0 {
-		return versions
-	}
-
-	return filterSupportedVersions(versions, func(version protocol.Version) bool {
-		return slices.ContainsFunc(curves, func(curve elliptic.Curve) bool {
-			return curve != elliptic.X25519MLKEM768 || version == protocol.Version1_3
-		})
-	})
-}
-
-func filterSupportedVersions(
-	versions []protocol.Version,
-	supports func(protocol.Version) bool,
-) []protocol.Version {
-	filtered := make([]protocol.Version, 0, len(versions))
-	for _, version := range versions {
-		if supports(version) {
-			filtered = append(filtered, version)
-		}
-	}
-
-	return filtered
-}
-
-func intersectSupportedVersions(
-	left, right []protocol.Version,
-) []protocol.Version {
-	return filterSupportedVersions(left, func(version protocol.Version) bool {
-		return slices.Contains(right, version)
-	})
 }
 
 func (c *dtlsConfig) validateSessionStore() error {

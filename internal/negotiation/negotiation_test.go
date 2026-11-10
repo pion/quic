@@ -7,12 +7,10 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	"github.com/stretchr/testify/assert"
@@ -127,7 +125,7 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 }
 
 func TestRecordWirePreservesExactClientHello(t *testing.T) {
-	clientHello := clientHelloForTest(&extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed, 1}})
+	clientHello := clientHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{2, 0, 1}})
 	clientHello.CompressionMethods = []*protocol.CompressionMethod{{ID: 0}, {ID: 0xfe}}
 	raw, err := (&handshake.Handshake{Message: clientHello}).Marshal()
 	require.NoError(t, err)
@@ -137,9 +135,9 @@ func TestRecordWirePreservesExactClientHello(t *testing.T) {
 	require.NoError(t, history.RecordWire(raw))
 	snapshot := history.Current()
 	assert.Equal(t, wantBody, snapshot.body)
-	pointFormats, ok := snapshot.Extension(extension.TypeSupportedPointFormats)
+	unknown, ok := snapshot.Extension(unknownExtensionType)
 	require.True(t, ok)
-	assert.Equal(t, []byte{2, 0, 1}, pointFormats.Data)
+	assert.Equal(t, []byte{2, 0, 1}, unknown.Data)
 
 	raw[len(raw)-1] = 0xff
 	assert.Equal(t, wantBody, snapshot.body)
@@ -185,10 +183,9 @@ func TestValidateServerHelloResponse(t *testing.T) {
 		"offered extension":            {offer: snapshotForTest(t, []uint16{0x1301}, &extension.ALPNOffer{Protocols: []string{"webrtc"}}), serverHello: serverHelloForTest(&extension.ALPNSelection{Protocol: "webrtc"})},
 		"offered unknown response":     {offer: snapshotForTest(t, []uint16{0x1301}, extension.Raw{Type: unknownExtensionType, Data: []byte{0x01}}), serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{0x02}})},
 		"HRR cookie exception":         {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: helloRetryRequestForTest(&extension13.Cookie{Cookie: []byte{0x01}})},
-		"SCSV renegotiation exception": {offer: snapshotForTest(t, []uint16{0x00ff}), serverHello: serverHelloForTest(&extension12.RenegotiationInfo{})},
 		"unsolicited known response":   {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: serverHelloForTest(&extension.ConnectionID{}), wantError: true},
 		"unsolicited unknown response": {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType}), wantError: true},
-		"renegotiation without SCSV":   {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: serverHelloForTest(&extension12.RenegotiationInfo{}), wantError: true},
+		"DTLS 1.2 renegotiation_info":  {offer: snapshotForTest(t, []uint16{0x00ff}), serverHello: serverHelloForTest(extension.Raw{Type: 0xff01, Data: []byte{0x00}}), wantError: true},
 	}
 
 	for name, test := range tests {
@@ -203,19 +200,6 @@ func TestValidateServerHelloResponse(t *testing.T) {
 			require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
 			requireAlert(t, err, alert.UnsupportedExtension)
 		})
-	}
-}
-
-func TestValidateServerHello12Context(t *testing.T) {
-	check := func(serverHello *handshake.MessageServerHello) {
-		err := ValidateServerHello12Context(serverHello)
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
-		require.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)
-		requireAlert(t, err, alert.IllegalParameter)
-	}
-	check(helloRetryRequestForTest())
-	for _, typ := range []extension.Type{extension.TypeSupportedVersions, extension.TypeKeyShare, extension.TypePreSharedKey} {
-		check(serverHelloForTest(extension.Raw{Type: typ}))
 	}
 }
 

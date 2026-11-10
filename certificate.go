@@ -11,12 +11,10 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
@@ -30,7 +28,7 @@ type ClientHelloInfo struct {
 	ServerName string
 
 	// CipherSuites lists the CipherSuites supported by the client (e.g.
-	// TLS_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256).
+	// TLS_AES_128_GCM_SHA256).
 	CipherSuites []cryptosuite.ID
 
 	// RandomBytes stores the client hello random bytes
@@ -38,7 +36,6 @@ type ClientHelloInfo struct {
 
 	// The following offer fields are populated for WithECHGetKeys.
 	SupportedCurves   []elliptic.Curve
-	SupportedPoints   []elliptic.CurvePointFormat
 	SignatureSchemes  []tls.SignatureScheme
 	SupportedProtos   []string
 	SupportedVersions []protocol.Version
@@ -70,9 +67,6 @@ func newECHClientHelloInfo(info *dtlsconfig.ClientHelloInfo) *ClientHelloInfo {
 		result.Extensions = append(result.Extensions, ext.ExtensionType())
 		result.addECHOfferExtension(ext)
 	}
-	if len(result.SupportedVersions) == 0 {
-		result.SupportedVersions = dtlsconfig.SupportedVersionsRange(protocol.Version1_2, hello.Version)
-	}
 
 	return result
 }
@@ -83,8 +77,6 @@ func (c *ClientHelloInfo) addECHOfferExtension(ext extension.Value) {
 		c.ServerName = ext.ServerName
 	case *extension.SupportedGroups:
 		c.SupportedCurves = slices.Clone(ext.Groups)
-	case *extension12.SupportedPointFormats:
-		c.SupportedPoints = slices.Clone(ext.PointFormats)
 	case *extension.SignatureAlgorithms:
 		for _, scheme := range ext.Schemes {
 			c.SignatureSchemes = append(c.SignatureSchemes, tls.SignatureScheme(scheme))
@@ -101,10 +93,6 @@ func (c *ClientHelloInfo) addECHOfferExtension(ext extension.Value) {
 // CertificateRequest message, which is used to demand a certificate and proof
 // of control from a client.
 type CertificateRequestInfo struct {
-	// CertificateTypes lists the certificate types accepted by the server.
-	// A nil slice indicates no restriction (DTLS 1.3).
-	CertificateTypes []clientcertificate.Type
-
 	// AcceptableCAs contains zero or more, DER-encoded, X.501
 	// Distinguished Names. These are the names of root or intermediate CAs
 	// that the server wishes the returned certificate to be signed by. An
@@ -114,10 +102,6 @@ type CertificateRequestInfo struct {
 	// SignatureSchemes lists the signature schemes that the server is
 	// willing to verify.
 	SignatureSchemes []tls.SignatureScheme
-
-	// version is the DTLS version negotiated for this connection.
-	// If zero, SupportsCertificate uses DTLS 1.3 rules.
-	version protocol.Version
 }
 
 // SupportsCertificate returns nil if the provided certificate is supported by
@@ -135,10 +119,5 @@ func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certific
 		}
 	}
 
-	version := cri.version
-	if version == 0 {
-		version = protocol.Version1_3
-	}
-
-	return (&dtlsconfig.CertificateRequestInfo{CertificateTypes: cri.CertificateTypes, AcceptableCAs: cri.AcceptableCAs, SignatureSchemes: signatureSchemes, Version: version}).SupportsCertificate(certificate)
+	return (&dtlsconfig.CertificateRequestInfo{AcceptableCAs: cri.AcceptableCAs, SignatureSchemes: signatureSchemes}).SupportsCertificate(certificate)
 }

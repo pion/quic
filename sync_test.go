@@ -134,11 +134,11 @@ func TestClientHandshakeCompletesBeforeFinishedACK(t *testing.T) {
 		clientTransport, serverTransport := packetPipe()
 		filtered := &finishedACKTestConn{PacketConn: serverTransport}
 		client, err := Client(clientTransport, clientTransport.RemoteAddr(),
-			WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithFlightInterval(time.Second))
+			WithInsecureSkipVerify(true), WithFlightInterval(time.Second))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = client.Close() })
 		server, err := Server(filtered, serverTransport.RemoteAddr(), WithCertificates(certificate),
-			WithMinVersion(protocol.Version1_3), WithFlightInterval(time.Second))
+			WithFlightInterval(time.Second))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = server.Close() })
 		filtered.server = server

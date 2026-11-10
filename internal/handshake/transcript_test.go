@@ -631,7 +631,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "not tls 13",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+				state.CipherSuite = nonTrafficSuite{ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)}
 				state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
 				state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
 
@@ -702,7 +702,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "not tls 13",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+				state.CipherSuite = nonTrafficSuite{ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)}
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: []byte{0x11},
 					Server: []byte{0x22},
@@ -864,7 +864,6 @@ func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
 		signature.ECDSA,
 		badSignature,
 		cert.Certificate,
-		protocol.Version1_3,
 	)
 	require.ErrorIs(t, err, dtlserrors.ErrKeySignatureMismatch)
 
@@ -873,7 +872,7 @@ func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
 	assert.Equal(t, beforeBytes, transcript.Bytes())
 	assert.Equal(t, beforeHash, afterHash)
 
-	require.NoError(t, dtlscrypto.VerifyCertificateVerify(verifyInput, dtlshash.SHA256, signature.ECDSA, certVerifySignature, cert.Certificate, protocol.Version1_3))
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(verifyInput, dtlshash.SHA256, signature.ECDSA, certVerifySignature, cert.Certificate))
 	rawCertificateVerify := rawHandshakeMessage13(t, 2, &handshake.MessageCertificateVerify{HashAlgorithm: dtlshash.SHA256, SignatureAlgorithm: signature.ECDSA, Signature: certVerifySignature})
 	require.NoError(t, transcript.AppendVerifiedInbound(false, cipherSuite, rawCertificateVerify))
 	certificateVerify, err := canonicalHandshake(rawCertificateVerify)
@@ -1086,3 +1085,6 @@ func TestSelectECHInnerTranscript(t *testing.T) {
 	require.NoError(t, cloned.selectECHInner())
 	require.Equal(t, transcript.Bytes(), cloned.Bytes())
 }
+
+// nonTrafficSuite hides TrafficSuite so the suite cannot derive DTLS 1.3 keys.
+type nonTrafficSuite struct{ cryptosuite.Suite }

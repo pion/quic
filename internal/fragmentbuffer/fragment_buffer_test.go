@@ -81,7 +81,7 @@ func TestFragmentBuffer(t *testing.T) {
 func TestFragmentBuffer_Overflow(t *testing.T) {
 	fragmentBuffer := New()
 
-	small := marshalHandshakeContent(t, handshake.Header{Type: handshake.TypeHelloVerifyRequest, Length: 3, FragmentLength: 3})
+	small := marshalHandshakeContent(t, handshake.Header{Type: handshake.TypeKeyUpdate, Length: 3, FragmentLength: 3})
 	_, err := fragmentBuffer.Push(0, small)
 	require.NoError(t, err)
 

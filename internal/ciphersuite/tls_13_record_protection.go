@@ -13,7 +13,6 @@ import (
 	"github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/internal/crypto/keyschedule"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"golang.org/x/crypto/chacha20"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -99,7 +98,6 @@ func (r *recordTrafficProtection13) Seal(
 	plaintext []byte,
 ) ([]byte, error) {
 	capabilities := mustAEADCapabilities(
-		protocol.Version1_3,
 		0,
 		r.aead.Overhead(),
 		tls13SequenceNumberMaskSampleLen,
@@ -126,7 +124,6 @@ func (r *recordTrafficProtection13) Open(
 	encryptedRecord []byte,
 ) ([]byte, error) {
 	capabilities := mustAEADCapabilities(
-		protocol.Version1_3,
 		0,
 		r.aead.Overhead(),
 		tls13SequenceNumberMaskSampleLen,

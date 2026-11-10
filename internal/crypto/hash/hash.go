@@ -86,8 +86,7 @@ func (a Algorithm) Digest(b []byte) []byte {
 	}
 }
 
-// Insecure returns if the given HashAlgorithm is considered secure in DTLS 1.2
-// .
+// Insecure reports whether the HashAlgorithm is considered insecure.
 func (a Algorithm) Insecure() bool {
 	switch a {
 	case None, MD5, SHA1:

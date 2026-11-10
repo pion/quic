@@ -10,7 +10,7 @@ import (
 	"slices"
 
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
-	"github.com/pion/dtls/v4/internal/crypto/prf"
+	"github.com/pion/dtls/v4/internal/crypto/keyagreement"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
@@ -95,7 +95,7 @@ func flight3PullServerHello(
 	flightCtx *handshakeContext,
 ) serverHelloPull {
 	pull := flightCtx.cache.FullPullMapItems(
-		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
+		flightCtx.state.HandshakeRecvSequence,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false},
 	)
 	if pull.Err != nil {
@@ -201,7 +201,7 @@ func applyFlight3ServerKeyShare(flightCtx *handshakeContext, serverShare *extens
 		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareUnknownGroup)
 	}
 
-	keyAgreementSecret, err := prf.PreMasterSecret(serverShare.KeyExchange, localKeypair.PrivateKey, serverShare.Group)
+	keyAgreementSecret, err := keyagreement.SharedSecret(serverShare.KeyExchange, localKeypair.PrivateKey, serverShare.Group)
 	if err != nil {
 		return newFlightParseFailure(alert.InternalError, err)
 	}

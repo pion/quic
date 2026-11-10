@@ -8,15 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
-	"github.com/pion/dtls/v4/internal/crypto/hash"
-	"github.com/pion/dtls/v4/internal/crypto/signature"
-	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
-	handshake12 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls12"
 	handshake13 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,11 +71,6 @@ func TestHandshakeMarshalToReturnsChildByteCount(t *testing.T) {
 }
 
 func TestHandshakeMessageDispatch(t *testing.T) {
-	certificate12 := &handshake12.MessageCertificate{Certificate: [][]byte{{0x01, 0x02}}}
-	request12 := &handshake12.MessageCertificateRequest{
-		CertificateTypes:        []clientcertificate.Type{clientcertificate.ECDSASign},
-		SignatureHashAlgorithms: []signaturehash.Algorithm{{Hash: hash.SHA256, Signature: signature.ECDSA}},
-	}
 	certificate13 := &handshake13.MessageCertificate{
 		CertificateRequestContext: []byte{0x03},
 		CertificateList: []handshake13.CertificateEntry{{
@@ -94,31 +84,25 @@ func TestHandshakeMessageDispatch(t *testing.T) {
 	}
 	for _, testCase := range []struct {
 		name    string
-		version protocol.Version
 		message handshake.Message
 	}{
-		{"Default/Certificate", 0, certificate13},
-		{"Default/EmptyCertificate", 0, &handshake13.MessageCertificate{}},
-		{"Default/CertificateRequest", 0, request13},
-		{"DTLS12/Certificate", protocol.Version1_2, certificate12},
-		{"DTLS12/CertificateRequest", protocol.Version1_2, request12},
-		{"DTLS13/Certificate", protocol.Version1_3, certificate13},
-		{"DTLS13/EmptyCertificate", protocol.Version1_3, &handshake13.MessageCertificate{}},
-		{"DTLS13/CertificateRequest", protocol.Version1_3, request13},
-		{"NewSessionTicket", 0, &handshake.MessageNewSessionTicket{
+		{"Certificate", certificate13},
+		{"EmptyCertificate", &handshake13.MessageCertificate{}},
+		{"CertificateRequest", request13},
+		{"NewSessionTicket", &handshake.MessageNewSessionTicket{
 			TicketLifetime: 1, TicketAgeAdd: 2, TicketNonce: []byte{0x03}, Ticket: []byte{0x04},
 			Extensions: []extension.Value{&extension13.MaxEarlyData{Size: 128}},
 		}},
-		{"KeyUpdate", 0, &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateRequested}},
-		{"NewConnectionID", 0, &handshake.MessageNewConnectionID{CIDs: [][]byte{{0x05}}, Usage: handshake.ConnectionIDSpare}},
-		{"RequestConnectionID", 0, &handshake.MessageRequestConnectionID{NumCIDs: 2}},
+		{"KeyUpdate", &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateRequested}},
+		{"NewConnectionID", &handshake.MessageNewConnectionID{CIDs: [][]byte{{0x05}}, Usage: handshake.ConnectionIDSpare}},
+		{"RequestConnectionID", &handshake.MessageRequestConnectionID{NumCIDs: 2}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			outbound := &handshake.Handshake{Header: handshake.Header{MessageSequence: 7}, Message: testCase.message}
 			raw, err := outbound.Marshal()
 			require.NoError(t, err)
 
-			decoded := &handshake.Handshake{Version: testCase.version}
+			decoded := &handshake.Handshake{}
 			require.NoError(t, decoded.Unmarshal(raw))
 			require.IsType(t, testCase.message, decoded.Message)
 			require.Equal(t, outbound.Header, decoded.Header)

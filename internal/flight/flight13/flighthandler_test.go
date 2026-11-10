@@ -152,7 +152,7 @@ func TestPullProtectedHandshakeFlightDistinguishesIncompleteAndInvalid(t *testin
 
 	t.Run("known illegal placement", func(t *testing.T) {
 		cache := dtlsflight.NewCache()
-		raw := marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{Extensions: []extension.Value{extension.Raw{Type: extension.TypeExtendedMasterSecret}}})
+		raw := marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{Extensions: []extension.Value{extension.Raw{Type: extension.TypePSKKeyExchangeModes}}})
 		cache.Push(raw, EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 
 		pull := pullProtectedHandshakeFlight(cache, rule, 0)

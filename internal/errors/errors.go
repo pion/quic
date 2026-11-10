@@ -19,18 +19,15 @@ var (
 	ErrBufferTooSmall     = stderrors.New("buffer is too small")
 	ErrInvalidPacket      = stderrors.New("invalid packet")
 
-	ErrContextUnsupported           = stderrors.New("context is not supported for ExportKeyingMaterial")
-	ErrHandshakeInProgress          = stderrors.New("handshake is in progress")
-	ErrReservedExportKeyingMaterial = stderrors.New("ExportKeyingMaterial can not be used with a reserved label")
-	ErrApplicationDataEpochZero     = stderrors.New("ApplicationData with epoch of 0")
-	ErrUnhandledContextType         = stderrors.New("unhandled contentType")
+	ErrHandshakeInProgress      = stderrors.New("handshake is in progress")
+	ErrApplicationDataEpochZero = stderrors.New("ApplicationData with epoch of 0")
+	ErrUnhandledContextType     = stderrors.New("unhandled contentType")
 
 	ErrCertificateVerifyNoCertificate       = stderrors.New("client sent certificate verify but we have no certificate to verify")
 	ErrCipherSuiteNoIntersection            = stderrors.New("client+server do not support any shared cipher suites")
 	ErrClientCertificateNotVerified         = stderrors.New("client sent certificate but did not verify it")
 	ErrClientCertificateRequired            = stderrors.New("server required client verification, but got none")
 	ErrClientNoMatchingSRTPProfile          = stderrors.New("server responded with SRTP Profile we do not support")
-	ErrClientRequiredButNoServerEMS         = stderrors.New("client required Extended Master Secret extension, but server does not support it")
 	ErrCookieMismatch                       = stderrors.New("client+server cookie does not match")
 	ErrInvalidCertificate                   = stderrors.New("no certificate provided")
 	ErrCertificateVerificationFailed        = stderrors.New("certificate verification failed")
@@ -41,10 +38,8 @@ var (
 	ErrInvalidHelloRetryRequest             = stderrors.New("invalid HelloRetryRequest")
 	ErrInvalidECDSASignature                = stderrors.New("ECDSA signature contained zero or negative values")
 	ErrInvalidPrivateKey                    = stderrors.New("invalid private key type")
-	ErrServerSelectedUnofferedCurve         = stderrors.New("server selected an elliptic curve not offered by the client")
 	ErrPeerRSAKeyTooLarge                   = stderrors.New("peer RSA key exceeds 8192 bits")
 	ErrInvalidSignatureAlgorithm            = stderrors.New("invalid signature algorithm")
-	ErrInvalidExtendedMasterSecretType      = stderrors.New("invalid extended master secret type")
 	ErrNilRemoteAddr                        = stderrors.New("remote address cannot be nil")
 	ErrInvalidCertificateSignatureAlgorithm = stderrors.New(
 		"certificate uses a signature algorithm that is not allowed",
@@ -56,11 +51,10 @@ var (
 		"connection can not be created, no CipherSuites satisfy this Config",
 	)
 	// ErrCipherSuiteNotFIPSApproved is returned when a cipher the Go FIPS module
-	// doesn't provide (ChaCha20-Poly1305 or AES-CCM) would be used in FIPS mode.
-	ErrCipherSuiteNotFIPSApproved        = stderrors.New("cipher suite not approved in FIPS mode")
-	ErrNoAvailablePSKCipherSuite         = stderrors.New("connection can not be created, pre-shared key present but no compatible CipherSuite")
-	ErrNoAvailableCertificateCipherSuite = stderrors.New("connection can not be created, certificate present but no compatible CipherSuite")
-	ErrNoAvailableSignatureSchemes       = stderrors.New(
+	// doesn't provide (ChaCha20-Poly1305) would be used in FIPS mode.
+	ErrCipherSuiteNotFIPSApproved  = stderrors.New("cipher suite not approved in FIPS mode")
+	ErrNoAvailablePSKCipherSuite   = stderrors.New("connection can not be created, pre-shared key present but no compatible CipherSuite")
+	ErrNoAvailableSignatureSchemes = stderrors.New(
 		"connection can not be created, no SignatureScheme satisfy this Config",
 	)
 	ErrNoCertificates                    = stderrors.New("no certificates configured")
@@ -79,7 +73,6 @@ var (
 	ErrPSKAndIdentityMustBeSetForClient = stderrors.New("PSK and PSK Identity Hint must both be set for client")
 	ErrRequestedButNoSRTPExtension      = stderrors.New("SRTP support was requested but server did not respond with use_srtp extension")
 	ErrServerNoMatchingSRTPProfile      = stderrors.New("client requested SRTP but we have no matching profiles")
-	ErrServerRequiredButNoClientEMS     = stderrors.New("server requires the Extended Master Secret extension, but the client does not support it")
 	ErrVerifyDataMismatch               = stderrors.New("expected and actual verify data does not match")
 	ErrNotAcceptableCertificateChain    = stderrors.New("certificate chain is not signed by an acceptable CA")
 
@@ -136,9 +129,6 @@ var (
 	ErrEmptyEllipticCurves = stderrors.New(
 		"elliptic curves option requires at least one curve",
 	)
-	ErrUnsupportedEllipticCurveVersion = stderrors.New(
-		"elliptic curve is not supported for the configured DTLS version",
-	)
 	ErrNilGetClientCertificate = stderrors.New(
 		"get client certificate option requires a non-nil callback",
 	)
@@ -179,8 +169,7 @@ var (
 	ErrHandshakeTranscriptExplicitAuthenticationRequired = stderrors.New("DTLS 1.3 handshake transcript message requires explicit authentication before commit")
 	ErrHandshakeTranscriptHelloRetryRequestInvalid       = stderrors.New("invalid DTLS 1.3 HelloRetryRequest transcript transition")
 
-	ErrInvalidCipherSpec = stderrors.New("cipher spec invalid")
-	ErrInvalidACK        = stderrors.New("ack invalid")
+	ErrInvalidACK = stderrors.New("ack invalid")
 
 	ErrALPNInvalidFormat           = stderrors.New("invalid alpn format")
 	ErrALPNNoAppProto              = stderrors.New("no application protocol")
@@ -188,7 +177,6 @@ var (
 	ErrInvalidCIDFormat            = stderrors.New("invalid connection ID format")
 	ErrMasterKeyIdentifierTooLarge = stderrors.New("master key identifier is over 255 bytes")
 	ErrUseSRTPDataTooLarge         = stderrors.New("use_srtp extension data exceeds uint16 length")
-	ErrPointFormatsTooLarge        = stderrors.New("point formats must not be longer than 255 ")
 	ErrPreSharedKeyFormat          = stderrors.New("invalid Pre-Shared Key extension format")
 	ErrPskKeyExchangeModesFormat   = stderrors.New(
 		"invalid Pre-Shared Key Exchange Modes extension format",
@@ -210,21 +198,15 @@ var (
 
 	ErrUnableToMarshalFragmented = stderrors.New("unable to marshal fragmented handshakes")
 	ErrHandshakeMessageUnset     = stderrors.New("handshake message unset, unable to marshal")
-	ErrInvalidClientKeyExchange  = stderrors.New("unable to determine if ClientKeyExchange is a public key or PSK Identity")
 	ErrInvalidSignHashAlgorithm  = stderrors.New("invalid signature/hash algorithm")
 	ErrCookieTooLong             = stderrors.New("cookie must not be longer than 255 bytes")
 	ErrInvalidExportedState      = stderrors.New("cannot restore an incomplete connection state")
-	ErrHandshakeCacheOverflow    = stderrors.New("handshake cache exceeded its memory limit")
-	ErrSessionEMSMismatch        = stderrors.New("extended master secret does not match the resumed session")
 	ErrSessionIDTooLong          = stderrors.New("session ID must not be longer than 255 bytes")
-	ErrCertificateTypesTooLong   = stderrors.New("certificate types must not be longer than 255 entries")
 	ErrCompressionMethodsTooLong = stderrors.New(
 		"compression methods must not be longer than 255 entries",
 	)
-	ErrPublicKeyTooLong         = stderrors.New("public key must not be longer than 255 bytes")
-	ErrInvalidEllipticCurveType = stderrors.New("invalid or unknown elliptic curve type")
-	ErrInvalidNamedCurve        = stderrors.New("invalid named curve")
-	ErrCipherSuiteUnset         = stderrors.New(
+	ErrInvalidNamedCurve = stderrors.New("invalid named curve")
+	ErrCipherSuiteUnset  = stderrors.New(
 		"server hello can not be created without a cipher suite",
 	)
 	ErrCompressionMethodUnset = stderrors.New(
@@ -283,15 +265,6 @@ var (
 	ErrNotEnoughRoomForNonce = stderrors.New("buffer not long enough to contain nonce")
 	ErrDecryptPacket         = stderrors.New("failed to decrypt packet")
 	ErrInvalidMAC            = stderrors.New("invalid mac")
-	ErrFailedToCast          = stderrors.New("failed to cast")
-
-	ErrCCMInvalidBlockSize   = stderrors.New("ccm: NewCCM requires 128-bit block cipher")
-	ErrCCMInvalidTagSize     = stderrors.New("ccm: tagsize must be 4, 6, 8, 10, 12, 14, or 16")
-	ErrCCMInvalidNonceSize   = stderrors.New("ccm: invalid nonce size")
-	ErrCCMPlaintextTooLong   = stderrors.New("ccm: plaintext too large")
-	ErrCCMOpen               = stderrors.New("ccm: message authentication failed")
-	ErrCCMCiphertextTooShort = stderrors.New("ccm: ciphertext too short")
-	ErrCCMCiphertextTooLong  = stderrors.New("ccm: ciphertext too long")
 
 	ErrFingerprintHashUnavailable = stderrors.New(
 		"fingerprint: hash algorithm is not linked into the binary",

@@ -6,13 +6,11 @@ package dtls
 import (
 	"bytes"
 	"encoding/gob"
-	"math"
 	"sync/atomic"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/internal/crypto/keyschedule"
-	"github.com/pion/dtls/v4/internal/crypto/prf"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	"github.com/pion/dtls/v4/internal/protocol"
@@ -26,11 +24,8 @@ import (
 // encoding.BinaryUnmarshaler.
 type State struct {
 	resumeToken               *atomic.Bool
-	handshakeComplete         bool
-	remoteSequenceNumber      uint64
 	localEpoch, remoteEpoch   uint64
 	localRandom, remoteRandom handshake.Random
-	masterSecret              []byte
 	cipherSuiteDescriptor     cryptosuite.Suite
 	sequenceNumber            uint64
 	srtpProtectionProfile     SRTPProtectionProfile
@@ -103,15 +98,6 @@ func newKeyUsageStats(suite cryptosuite.Suite, writeEpoch, readEpoch, sealed, fa
 	}
 }
 
-func keyUsageStats12(state *dtlsstate.State12) *KeyUsageStats {
-	if state.Protection == nil {
-		return nil
-	}
-	sealed, failed := state.Usage()
-
-	return newKeyUsageStats(state.CipherSuite, state.LocalEpoch(), state.RemoteEpoch(), sealed, failed)
-}
-
 func remainingUsage(limit, used uint64) uint64 {
 	if used >= limit {
 		return 0
@@ -122,20 +108,15 @@ func remainingUsage(limit, used uint64) uint64 {
 
 type serializedState struct {
 	Handoff               bool
-	HandshakeComplete     bool
-	RemoteSequenceNumber  uint64
 	ECHAccepted           bool
 	ServerName            string
 	DTLS13                *serializedState13
 	ExporterMasterSecret  []byte
 	KeyUsage              *KeyUsageStats
 	Version               protocol.Version
-	LocalEpoch            uint16
-	RemoteEpoch           uint16
 	LocalRandom           [handshake.RandomLength]byte
 	RemoteRandom          [handshake.RandomLength]byte
 	CipherSuiteID         uint16
-	MasterSecret          []byte
 	SequenceNumber        uint64
 	SRTPProtectionProfile uint16
 	PeerSRTPMKI           []byte
@@ -158,25 +139,13 @@ func generateState(active dtlsstate.Active) (*State, error) {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
 	state := snapshotCommonState(common)
-	switch internalState := active.(type) {
-	case *dtlsstate.State:
-		if common.LocalVersion == protocol.Version1_3 {
-			return nil, dtlserrors.ErrInvalidProtocolVersionState
-		}
-		state.version = protocol.Version1_2
-		state.KeyUsage = keyUsageStats12(internalState)
-		state.masterSecret = bytes.Clone(internalState.MasterSecret)
-		state.handshakeComplete = internalState.HandshakeComplete.Load()
-		if highest, seen := common.HighestRemoteSequenceNumber(common.RemoteEpoch()); seen {
-			state.remoteSequenceNumber = highest + 1
-		}
-	case *dtlsstate.State13:
-		state.version = protocol.Version1_3
-		state.KeyUsage = keyUsageStats(internalState)
-		state.exporterMasterSecret = bytes.Clone(internalState.KeySchedule.ExporterMasterSecret)
-	default:
+	internalState, ok := active.(*dtlsstate.State13)
+	if !ok {
 		return nil, dtlserrors.ErrInvalidProtocolVersionState
 	}
+	state.version = protocol.Version1_3
+	state.KeyUsage = keyUsageStats(internalState)
+	state.exporterMasterSecret = bytes.Clone(internalState.KeySchedule.ExporterMasterSecret)
 
 	return state, nil
 }
@@ -239,37 +208,24 @@ func (s *State) serialize() (*serializedState, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-	localEpoch, remoteEpoch := s.localEpoch, s.remoteEpoch
-	if s.version == protocol.Version1_3 {
-		suite, err := s.cipherSuite()
-		if err != nil {
-			return nil, err
-		}
-		if err = s.validate13(suite); err != nil {
-			return nil, err
-		}
-		localEpoch, remoteEpoch = 0, 0
-	} else if s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16 {
-		return nil, dtlserrors.ErrEpochOverflow
+	if s.version != protocol.Version1_3 {
+		return nil, dtlserrors.ErrInvalidProtocolVersionState
 	}
-
-	version := s.version
-	if version == 0 {
-		version = protocol.Version1_2
+	suite, err := s.cipherSuite()
+	if err != nil {
+		return nil, err
+	}
+	if err = s.validate13(suite); err != nil {
+		return nil, err
 	}
 
 	return &serializedState{
 		Handoff:               s.resumeToken != nil,
-		HandshakeComplete:     s.handshakeComplete,
-		RemoteSequenceNumber:  s.remoteSequenceNumber,
 		DTLS13:                s.state13,
 		ExporterMasterSecret:  s.exporterMasterSecret,
 		KeyUsage:              s.KeyUsage,
-		Version:               version,
-		LocalEpoch:            uint16(localEpoch),  //nolint:gosec // Checked before serialization.
-		RemoteEpoch:           uint16(remoteEpoch), //nolint:gosec // Checked before serialization.
+		Version:               s.version,
 		CipherSuiteID:         uint16(s.CipherSuiteID),
-		MasterSecret:          s.masterSecret,
 		SequenceNumber:        s.sequenceNumber,
 		LocalRandom:           s.localRandom.MarshalFixed(),
 		RemoteRandom:          s.remoteRandom.MarshalFixed(),
@@ -293,19 +249,13 @@ func (s *State) deserialize(serialized serializedState) {
 	if serialized.Handoff {
 		s.resumeToken = new(atomic.Bool)
 	}
-	s.handshakeComplete = serialized.HandshakeComplete
-	s.remoteSequenceNumber = serialized.RemoteSequenceNumber
 	s.state13 = serialized.DTLS13
 	s.exporterMasterSecret = bytes.Clone(serialized.ExporterMasterSecret)
 	s.KeyUsage = serialized.KeyUsage
 	s.cipherSuiteDescriptor = nil
 	s.version = serialized.Version
-	if s.version == 0 {
-		s.version = protocol.Version1_2
-	}
-	s.localEpoch = uint64(serialized.LocalEpoch)
-	s.remoteEpoch = uint64(serialized.RemoteEpoch)
-	if s.version == protocol.Version1_3 && s.state13 != nil {
+	s.localEpoch, s.remoteEpoch = 0, 0
+	if s.state13 != nil {
 		if len(s.state13.Write) > 0 {
 			s.localEpoch = s.state13.Write[len(s.state13.Write)-1].Epoch
 		}
@@ -315,7 +265,6 @@ func (s *State) deserialize(serialized serializedState) {
 	}
 	s.localRandom.UnmarshalFixed(serialized.LocalRandom)
 	s.remoteRandom.UnmarshalFixed(serialized.RemoteRandom)
-	s.masterSecret = serialized.MasterSecret
 	s.sequenceNumber = serialized.SequenceNumber
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
 	s.peerSRTPMKI = bytes.Clone(serialized.PeerSRTPMKI)
@@ -353,56 +302,26 @@ func (s *State) cipherSuite() (cryptosuite.Suite, error) {
 
 // generateInternalState is the inverse of generateState: it expands the public
 // State into the internal state used by the connection internals.
-//
-// Validate either protocol version before restoring its keys.
 func (s *State) generateInternalState() (dtlsstate.Active, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-	if s.version != protocol.Version1_3 && (s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16) {
-		return nil, dtlserrors.ErrEpochOverflow
+	if s.version != protocol.Version1_3 {
+		return nil, dtlserrors.ErrInvalidProtocolVersionState
 	}
 
 	cipherSuite, err := s.cipherSuite()
 	if err != nil {
 		return nil, err
 	}
-	if s.version == protocol.Version1_3 {
-		return s.generateInternalState13(cipherSuite)
-	}
 
-	return s.generateInternalState12(cipherSuite)
+	return s.generateInternalState13(cipherSuite)
 }
 
-func (s *State) generateInternalState12(cipherSuite cryptosuite.Suite) (*dtlsstate.State12, error) {
-	if !s.handshakeComplete {
-		return nil, dtlserrors.ErrInvalidExportedState
-	}
-	if !cipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) {
-		return nil, dtlserrors.ErrInvalidCipherSuite
-	}
-
-	state := &dtlsstate.State{Common: s.restoreCommonState(cipherSuite, protocol.Version1_2), MasterSecret: bytes.Clone(s.masterSecret)}
-	state.HandshakeComplete.Store(true)
-	state.RemoteReplayCutoff = s.remoteSequenceNumber
-	if s.remoteSequenceNumber > 0 {
-		state.UpdateRemoteSequenceNumber(s.remoteEpoch, s.remoteSequenceNumber-1)
-	}
-	if s.KeyUsage != nil {
-		state.RestoreUsage(s.KeyUsage.SealedRecords, s.KeyUsage.AuthenticationFailures)
-	}
-
-	if err := state.InitCipherSuite(); err != nil {
-		return nil, err
-	}
-
-	return state, nil
-}
-
-func (s *State) restoreCommonState(suite cryptosuite.Suite, version protocol.Version) *dtlsstate.Common {
+func (s *State) restoreCommonState(suite cryptosuite.Suite) *dtlsstate.Common {
 	common := &dtlsstate.Common{
 		LocalRandom: s.localRandom, RemoteRandom: s.remoteRandom,
-		CipherSuite: suite, IsClient: s.isClient, LocalVersion: version,
+		CipherSuite: suite, IsClient: s.isClient, LocalVersion: protocol.Version1_3,
 		PeerCertificates: dtlsutil.CloneByteSlices(s.PeerCertificates),
 		IdentityHint:     bytes.Clone(s.IdentityHint), SessionID: bytes.Clone(s.SessionID),
 		NegotiatedProtocol: s.NegotiatedProtocol, RRCNegotiated: s.rrcNegotiated,
@@ -555,7 +474,7 @@ func (s *State) generateInternalState13(suite cryptosuite.Suite) (*dtlsstate.Sta
 	}
 	snapshot := s.state13
 	state := &dtlsstate.State13{
-		Common: s.restoreCommonState(suite, protocol.Version1_3),
+		Common: s.restoreCommonState(suite),
 		KeySchedule: dtlsstate.KeySchedule{
 			ExporterMasterSecret:   bytes.Clone(s.exporterMasterSecret),
 			ResumptionMasterSecret: bytes.Clone(snapshot.ResumptionMasterSecret),
@@ -623,9 +542,6 @@ func restoreTrafficGenerations(state *dtlsstate.State13, suite cryptosuite.Traff
 // Only state returned by ExportState can be resumed. Resume exported state at
 // most once across all processes and serialized copies.
 func (s *State) MarshalBinary() ([]byte, error) {
-	if s.version != protocol.Version1_3 && !s.handshakeComplete {
-		return nil, dtlserrors.ErrInvalidExportedState
-	}
 	serialized, err := s.serialize()
 	if err != nil {
 		return nil, err
@@ -641,16 +557,14 @@ func (s *State) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary is a binary.BinaryUnmarshaler.UnmarshalBinary implementation.
-//
-// Validate decoded state for both protocol versions.
 func (s *State) UnmarshalBinary(data []byte) error {
 	enc := gob.NewDecoder(bytes.NewBuffer(data))
 	var serialized serializedState
 	if err := enc.Decode(&serialized); err != nil {
 		return err
 	}
-	if serialized.Version != protocol.Version1_3 && !serialized.HandshakeComplete {
-		return dtlserrors.ErrInvalidExportedState
+	if serialized.Version != protocol.Version1_3 {
+		return dtlserrors.ErrInvalidProtocolVersionState
 	}
 	s.deserialize(serialized)
 	if s.CipherSuiteID == 0 {
@@ -661,30 +575,18 @@ func (s *State) UnmarshalBinary(data []byte) error {
 }
 
 func (s *State) validateDecodedState() error {
-	if s.version == protocol.Version1_3 {
-		if suite := ciphersuite.ForID(s.CipherSuiteID); suite != nil {
-			return s.validate13(suite)
-		}
-		if s.state13 == nil {
-			return dtlserrors.ErrInvalidProtectionInput
-		}
-
-		return nil
+	if suite := ciphersuite.ForID(s.CipherSuiteID); suite != nil {
+		return s.validate13(suite)
 	}
-	if len(s.masterSecret) == 0 {
+	if s.state13 == nil {
 		return dtlserrors.ErrInvalidProtectionInput
-	}
-	if cipherSuite := ciphersuite.ForID(s.CipherSuiteID); cipherSuite != nil && (!cipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) || validateCipherSuite(cipherSuite) != nil) {
-		return dtlserrors.ErrInvalidCipherSuite
 	}
 
 	return nil
 }
 
 // ExportKeyingMaterial returns length bytes of exported key material in a new
-// slice as defined in https://www.rfc-editor.org/rfc/rfc5705.html#section-4
-// for DTLS 1.2 and https://www.rfc-editor.org/rfc/rfc8446.html#section-7.5
-// for DTLS 1.3.
+// slice as defined in https://www.rfc-editor.org/rfc/rfc8446.html#section-7.5.
 // This allows protocols to use DTLS for key establishment, but
 // then use some of the keying material for their own purposes.
 func (s *State) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
@@ -692,38 +594,7 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 		return nil, dtlserrors.ErrHandshakeInProgress
 	}
 
-	if s.version == protocol.Version1_3 {
-		return s.exportKeyingMaterialHKDF(label, context, length)
-	}
-
-	if len(context) != 0 {
-		return nil, dtlserrors.ErrContextUnsupported
-	} else if _, ok := invalidKeyingLabels()[label]; ok {
-		return nil, dtlserrors.ErrReservedExportKeyingMaterial
-	}
-
-	return s.exportKeyingMaterialPRF(label, length)
-}
-
-// exportKeyingMaterialPRF implements the DTLS 1.2 exporter from
-// https://www.rfc-editor.org/rfc/rfc5705.html#section-4.
-func (s *State) exportKeyingMaterialPRF(label string, length int) ([]byte, error) {
-	cipherSuite, err := s.cipherSuite()
-	if err != nil {
-		return nil, err
-	}
-
-	localRandom := s.localRandom.MarshalFixed()
-	remoteRandom := s.remoteRandom.MarshalFixed()
-
-	seed := []byte(label)
-	if s.isClient {
-		seed = append(append(seed, localRandom[:]...), remoteRandom[:]...)
-	} else {
-		seed = append(append(seed, remoteRandom[:]...), localRandom[:]...)
-	}
-
-	return prf.PHash(s.masterSecret, seed, length, cipherSuite.HashFunc())
+	return s.exportKeyingMaterialHKDF(label, context, length)
 }
 
 // exportKeyingMaterialHKDF implements the exporter from

@@ -29,7 +29,7 @@ func flight0Parse(
 	if state.LocalVersion != protocol.Version1_3 {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidProtocolVersionState
 	}
-	pull := cache.FullPullMapItems(0, state.CipherSuite,
+	pull := cache.FullPullMapItems(0,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
 	)
 	if pull.Err != nil {

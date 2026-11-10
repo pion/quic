@@ -29,10 +29,8 @@ func DecodeHeader(raw []byte, cidLength int) (headerLen, payloadLen int, err err
 		return 0, 0, dtlserrors.ErrInvalidPacketLength
 	}
 	unified := protocol.IsDTLS13Ciphertext(protocol.ContentType(raw[0]))
-	hasCID := raw[0] == byte(protocol.ContentTypeConnectionID)
-	if unified {
-		hasCID = raw[0]&CIDBit != 0
-	}
+	// DTLS 1.3 only carries CIDs in the unified header.
+	hasCID := unified && raw[0]&CIDBit != 0
 	if !hasCID {
 		cidLength = 0
 	} else if cidLength == 0 {

@@ -14,46 +14,17 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/binary"
 	"math/big"
 	"time"
 
-	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
-	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	"github.com/pion/dtls/v4/internal/crypto/hash"
 	"github.com/pion/dtls/v4/internal/crypto/signature"
 	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/internal/protocol"
 )
 
 type ecdsaSignature struct {
 	R, S *big.Int
-}
-
-func VerifyCertificateKeyType(rawCertificates [][]byte, suite cryptosuite.Suite) error {
-	if len(rawCertificates) == 0 {
-		return dtlserrors.ErrInvalidCertificate
-	}
-	cert, err := parsePeerCertificate(rawCertificates[0])
-	if err != nil {
-		return err
-	}
-	var keyType clientcertificate.Type
-	switch cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		keyType = clientcertificate.RSASign
-	case *ecdsa.PublicKey, ed25519.PublicKey:
-		keyType = clientcertificate.ECDSASign
-	default:
-		return dtlserrors.ErrInvalidCertificate
-	}
-	if keyType != suite.CertificateType() {
-		return dtlserrors.ErrInvalidCertificate
-	}
-
-	return nil
 }
 
 // Match crypto/tls's default limit on peer RSA keys.
@@ -69,22 +40,6 @@ func parsePeerCertificate(raw []byte) (*x509.Certificate, error) {
 	}
 
 	return cert, nil
-}
-
-func ValueKeyMessage(clientRandom, serverRandom, publicKey []byte, namedCurve elliptic.Curve) []byte {
-	serverECDHParams := make([]byte, 4)
-	serverECDHParams[0] = 3 // named curve
-	binary.BigEndian.PutUint16(serverECDHParams[1:], uint16(namedCurve))
-	//nolint:gosec // G115, no risk of overflow, the biggest supported curve is 97 bytes.
-	serverECDHParams[3] = byte(len(publicKey))
-
-	plaintext := []byte{}
-	plaintext = append(plaintext, clientRandom...)
-	plaintext = append(plaintext, serverRandom...)
-	plaintext = append(plaintext, serverECDHParams...)
-	plaintext = append(plaintext, publicKey...)
-
-	return plaintext
 }
 
 // validateSignatureAlgOID validates that the signature scheme matches the
@@ -168,60 +123,8 @@ func validateHandshakeSignatureScheme(
 	return dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
-// GenerateKeySignature signs a key exchange message.
-// If the client provided a "signature_algorithms" extension, then all
-// certificates provided by the server MUST be signed by a
-// hash/signature algorithm pair that appears in that extension
-//
-// https://tools.ietf.org/html/rfc5246#section-7.4.2
-func GenerateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve elliptic.Curve, signer crypto.Signer, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm) ([]byte, error) {
-	if err := validateHandshakeSignatureScheme(signer.Public(), hashAlgorithm, signatureAlgorithm); err != nil {
-		return nil, err
-	}
-	msg := ValueKeyMessage(clientRandom, serverRandom, publicKey, namedCurve)
-	switch signer.Public().(type) {
-	case ed25519.PublicKey:
-		// https://crypto.stackexchange.com/a/55483
-		return signer.Sign(rand.Reader, msg, crypto.Hash(0))
-	case *ecdsa.PublicKey:
-		hashed := hashAlgorithm.Digest(msg)
-
-		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
-	case *rsa.PublicKey:
-		hashed := hashAlgorithm.Digest(msg)
-
-		// Use RSA-PSS if the signature algorithm is PSS
-		if signatureAlgorithm.IsPSS() {
-			pssOpts := &rsa.PSSOptions{
-				SaltLength: rsa.PSSSaltLengthEqualsHash,
-				Hash:       hashAlgorithm.CryptoHash(),
-			}
-
-			return signer.Sign(rand.Reader, hashed, pssOpts)
-		}
-
-		// Otherwise use PKCS#1 v1.5
-		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
-	}
-
-	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
-}
-
-func VerifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte) error {
-	return verifyCertificateSignature(
-		message, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates, protocol.Version1_2,
-	)
-}
-
-// GenerateCertificateVerify signs a certificate verify message.
-// If the server has sent a CertificateRequest message, the client MUST send the Certificate
-// message.  The ClientKeyExchange message is now sent, and the content
-// of that message will depend on the public key algorithm selected
-// between the ClientHello and the ServerHello.  If the client has sent
-// a certificate with signing ability, a digitally-signed
-// CertificateVerify message is sent to explicitly verify possession of
-// the private key in the certificate.
-// https://tools.ietf.org/html/rfc5246#section-7.3
+// GenerateCertificateVerify signs the DTLS 1.3 CertificateVerify input.
+// https://www.rfc-editor.org/rfc/rfc8446#section-4.4.3
 func GenerateCertificateVerify(handshakeBodies []byte, signer crypto.Signer, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm) ([]byte, error) {
 	if err := validateHandshakeSignatureScheme(signer.Public(), hashAlgorithm, signatureAlgorithm); err != nil {
 		return nil, err
@@ -256,11 +159,8 @@ func GenerateCertificateVerify(handshakeBodies []byte, signer crypto.Signer, has
 	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
-func VerifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, remoteKeySignature []byte, rawCertificates [][]byte, version protocol.Version) error {
-	return verifyCertificateSignature(handshakeBodies, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates, version)
-}
-
-func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte, version protocol.Version) error {
+// VerifyCertificateVerify verifies a DTLS 1.3 CertificateVerify signature.
+func VerifyCertificateVerify(message []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, remoteKeySignature []byte, rawCertificates [][]byte) error {
 	if len(rawCertificates) == 0 {
 		return dtlserrors.ErrLengthMismatch
 	}
@@ -274,7 +174,7 @@ func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorith
 		return err
 	}
 
-	if err := validateVersionedSignatureScheme(certificate.PublicKey, hashAlgorithm, signatureAlgorithm, version); err != nil {
+	if err := validateSignatureScheme13(certificate.PublicKey, hashAlgorithm, signatureAlgorithm); err != nil {
 		return err
 	}
 
@@ -294,14 +194,15 @@ func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorith
 	return dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
-func validateVersionedSignatureScheme(key crypto.PublicKey, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, version protocol.Version) error {
-	if version == protocol.Version1_3 {
-		if signatureAlgorithm == signature.RSA || hashAlgorithm.Insecure() || hashAlgorithm == hash.SHA224 {
-			return dtlserrors.ErrInvalidSignatureAlgorithm
-		}
-		if publicKey, ok := key.(*ecdsa.PublicKey); ok && !matchesECDSACurve13(publicKey, hashAlgorithm) {
-			return dtlserrors.ErrInvalidSignatureAlgorithm
-		}
+// DTLS 1.3 forbids PKCS#1 v1.5, SHA-1, and SHA-224 in CertificateVerify, and
+// binds each ECDSA scheme to one curve.
+// https://www.rfc-editor.org/rfc/rfc8446#section-4.2.3
+func validateSignatureScheme13(key crypto.PublicKey, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm) error {
+	if signatureAlgorithm == signature.RSA || hashAlgorithm.Insecure() || hashAlgorithm == hash.SHA224 {
+		return dtlserrors.ErrInvalidSignatureAlgorithm
+	}
+	if publicKey, ok := key.(*ecdsa.PublicKey); ok && !matchesECDSACurve13(publicKey, hashAlgorithm) {
+		return dtlserrors.ErrInvalidSignatureAlgorithm
 	}
 
 	return validateHandshakeSignatureScheme(key, hashAlgorithm, signatureAlgorithm)

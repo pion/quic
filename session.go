@@ -6,11 +6,9 @@ package dtls
 import (
 	"bytes"
 	"crypto"
-	"crypto/sha256"
 	"time"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
-	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/internal/protocol"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
@@ -21,23 +19,19 @@ type SessionTicket = dtlsstate.SessionTicket
 
 // Session store data needed in resumption.
 type Session struct {
-	// ID stores a DTLS 1.2 session ID or a DTLS 1.3 ticket identity.
+	// ID stores the DTLS 1.3 ticket identity.
 	ID []byte
-	// Secret stores a DTLS 1.2 master secret or a DTLS 1.3 resumption PSK.
+	// Secret stores the DTLS 1.3 resumption PSK.
 	Secret []byte //nolint:gosec // Session stores intentionally retain the resumption secret.
-	// Ticket is non-nil for DTLS 1.3 sessions.
+	// Ticket holds the ticket metadata.
 	Ticket *SessionTicket
 	// Version identifies entries with authentication and negotiation metadata.
 	// Legacy entries without this metadata require a full handshake.
 	Version uint8
 	// IsClient binds the session to the endpoint role that authenticated it.
 	IsClient bool
-	// The following fields retain negotiation and authentication state.
-	CipherSuiteID        cryptosuite.ID
-	ExtendedMasterSecret bool
-	PeerCertificates     [][]byte
-	IdentityHint         []byte // Original PSK identity, including for DTLS 1.3 tickets.
-	PSKHash              [sha256.Size]byte
+	// IdentityHint is the original external PSK identity, if any.
+	IdentityHint []byte
 }
 
 // ticketPSK ignores expired tickets and sessions from other protocol versions or names.
@@ -84,7 +78,7 @@ func validSessionTicketAge(age time.Duration, lifetime uint32) bool {
 type SessionStore interface {
 	// Set save a session.
 	// For client, use server name as key.
-	// For server, use session id.
+	// For server, use the ticket identity.
 	Set(key []byte, s Session) error
 	// Get fetch a session.
 	Get(key []byte) (Session, error)

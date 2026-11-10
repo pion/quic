@@ -30,38 +30,11 @@ const (
 	X25519MLKEM768SharedSecretSize = mlkem.SharedKeySize + X25519KeySize
 )
 
-// CurvePointFormat is used to represent the IANA registered curve points
-//
-// https://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-9
-type CurvePointFormat byte
-
-// CurvePointFormat enums.
-const (
-	CurvePointFormatUncompressed CurvePointFormat = 0
-)
-
 // Keypair is a Curve with a Private/Public Keypair.
 type Keypair struct {
 	Curve      Curve
 	PublicKey  []byte
 	PrivateKey []byte //nolint:gosec // no real risk of exporting the private key.
-}
-
-// CurveType is used to represent the IANA registered curve types for TLS
-//
-// https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-10
-type CurveType byte
-
-// CurveType enums.
-const (
-	CurveTypeNamedCurve CurveType = 0x03
-)
-
-// CurveTypes returns all known curves.
-func CurveTypes() map[CurveType]struct{} {
-	return map[CurveType]struct{}{
-		CurveTypeNamedCurve: {},
-	}
 }
 
 // Curve is used to represent the IANA registered curves for TLS
@@ -90,16 +63,6 @@ func (c Curve) String() string {
 	}
 
 	return fmt.Sprintf("%#x", uint16(c))
-}
-
-// Curves returns all curves we implement.
-func Curves() map[Curve]bool {
-	return map[Curve]bool{
-		X25519:         true,
-		P256:           true,
-		P384:           true,
-		X25519MLKEM768: true,
-	}
 }
 
 // GenerateKeypair generates a keypair for the given Curve.

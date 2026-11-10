@@ -8,37 +8,17 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol"
 )
 
-const (
-	maxDTLS12PlaintextRecordLen = 1 << 14
-	maxDTLS13InnerPlaintextLen  = maxDTLS12PlaintextRecordLen + 1
-)
+// maxInnerPlaintextLen is 2^14 bytes of content plus the inner content type.
+// https://www.rfc-editor.org/rfc/rfc8446#section-5.4
+const maxInnerPlaintextLen = 1<<14 + 1
 
-func mustAEADCapabilities(version protocol.Version, explicitNonceLen, tagLen, maskSampleLen int) cryptosuite.Capabilities {
-	maxPlaintextLen := maxDTLS12PlaintextRecordLen
-	if version == protocol.Version1_3 {
-		maxPlaintextLen = maxDTLS13InnerPlaintextLen
-	}
+func mustAEADCapabilities(explicitNonceLen, tagLen, maskSampleLen int) cryptosuite.Capabilities {
 	capabilities, err := cryptosuite.NewAEADCapabilities(
-		version,
-		maxPlaintextLen,
+		protocol.Version1_3,
+		maxInnerPlaintextLen,
 		explicitNonceLen,
 		tagLen,
 		maskSampleLen,
-	)
-	if err != nil {
-		return cryptosuite.Capabilities{}
-	}
-
-	return capabilities
-}
-
-func mustCBCCapabilities(macLen int) cryptosuite.Capabilities {
-	const blockLen = 16
-
-	capabilities, err := cryptosuite.NewCBCCapabilities(
-		maxDTLS12PlaintextRecordLen,
-		macLen,
-		blockLen,
 	)
 	if err != nil {
 		return cryptosuite.Capabilities{}

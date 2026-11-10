@@ -275,61 +275,6 @@ func TestValidateClientHelloRetryAcceptsReorderedExtensions(t *testing.T) {
 	require.NoError(t, ValidateClientHelloRetry(initial, retry, request))
 }
 
-func TestValidateHelloVerifyRequestResponse(t *testing.T) {
-	initialHello := retryClientHelloForTest(false)
-	initialHello.Extensions = append(initialHello.Extensions, &extension.ConnectionID{CID: []byte{0x01}}, &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM}})
-	initial := snapshotClientHelloForRetryTest(t, initialHello)
-	retryHello, err := ClientHelloFromSnapshot(initial)
-	require.NoError(t, err)
-	retryHello.Cookie = []byte("cookie")
-	retryExtensions := retryHello.Extensions
-	retryExtensions[2] = extension.Raw{Type: unknownExtensionType, Data: []byte{0xff}}
-	retryHello.Extensions = retryExtensions
-	retry := snapshotClientHelloForRetryTest(t, retryHello)
-
-	tests := map[string]struct {
-		mutate    func(*handshake.MessageClientHello)
-		wantError bool
-	}{
-		"DTLS 1.2 extension changes allowed": {},
-		"version":                            {mutate: func(ch *handshake.MessageClientHello) { ch.Version = protocol.Version1_0 }, wantError: true},
-		"random": {
-			mutate: func(ch *handshake.MessageClientHello) { ch.Random.RandomBytes[0] ^= 0xff }, wantError: true,
-		},
-		"session ID": {
-			mutate: func(ch *handshake.MessageClientHello) { ch.SessionID = []byte{0xff} }, wantError: true,
-		},
-		"cipher suites": {mutate: func(ch *handshake.MessageClientHello) { ch.CipherSuiteIDs = ch.CipherSuiteIDs[:1] }, wantError: true},
-		"compression":   {mutate: func(ch *handshake.MessageClientHello) { ch.CompressionMethods = ch.CompressionMethods[:1] }, wantError: true},
-		"cookie": {
-			mutate: func(ch *handshake.MessageClientHello) { ch.Cookie = []byte("wrong") }, wantError: true,
-		},
-		"connection ID": {mutate: func(ch *handshake.MessageClientHello) {
-			replaceRetryExtension(ch, extension.TypeConnectionID, &extension.ConnectionID{CID: []byte{0xff}})
-		}, wantError: true},
-		"use_srtp": {mutate: func(ch *handshake.MessageClientHello) {
-			replaceRetryExtension(ch, extension.TypeUseSRTP, &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{extension.SRTP_AEAD_AES_256_GCM}})
-		}, wantError: true},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			candidate := retry
-			if test.mutate != nil {
-				candidate = mutateSnapshotForRetryTest(t, retry, test.mutate)
-			}
-			err := ValidateHelloVerifyRequestResponse(initial, candidate, []byte("cookie"))
-			if !test.wantError {
-				require.NoError(t, err)
-
-				return
-			}
-			require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
-			requireAlert(t, err, alert.IllegalParameter)
-		})
-	}
-}
-
 func TestValidateServerHelloAfterRetry(t *testing.T) {
 	initial := snapshotClientHelloForRetryTest(t, retryClientHelloForTest(false))
 	selected := elliptic.X25519

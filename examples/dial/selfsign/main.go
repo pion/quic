@@ -33,7 +33,6 @@ func main() {
 	dtlsConn, err := dtls.Dial("udp", addr,
 		dtls.WithCertificates(certificate),
 		dtls.WithInsecureSkipVerify(true),
-		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 	)
 	util.Check(err)
 	defer func() {

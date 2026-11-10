@@ -184,7 +184,7 @@ func pullProtectedHandshakeFlight(cache *dtlsflight.Cache, rules []dtlsflight.Ha
 }
 
 func decodeProtectedHandshake(data []byte) (*handshake.Handshake, error) {
-	parsed := &handshake.Handshake{Version: protocol.Version1_3}
+	parsed := &handshake.Handshake{}
 	if err := parsed.Header.Unmarshal(data); err != nil {
 		return nil, err
 	}

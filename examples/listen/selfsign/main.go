@@ -29,7 +29,6 @@ func main() {
 
 	listener, err := dtls.ListenAddr("udp", addr,
 		dtls.WithCertificates(certificate),
-		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 	)
 	util.Check(err)
 	defer func() {

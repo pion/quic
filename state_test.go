@@ -4,7 +4,9 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"testing"
 	"time"
 
@@ -16,42 +18,46 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStateRejectsDTLS12EpochOverflow(t *testing.T) {
-	for _, epoch := range []uint64{1 << 16, 1 << 32, ^uint64(0)} {
-		for _, state := range []State{
-			{handshakeComplete: true, localEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			{handshakeComplete: true, remoteEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		} {
-			_, err := state.MarshalBinary()
-			require.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
-			_, err = state.generateInternalState()
-			require.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
-		}
-	}
-}
-
-func TestStatePreservesPeerSRTPMKI(t *testing.T) {
-	state := State{CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, srtpProtectionProfile: SRTP_AES128_CM_HMAC_SHA1_80, peerSRTPMKI: []byte{1, 2}}
-	serialized, err := state.serialize()
+func TestStateRoundTripPreservesNegotiatedExtensions(t *testing.T) {
+	cert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
+	client, server := handshakePair(t, []ClientOption{
+		WithInsecureSkipVerify(true),
+		WithConnectionID(func() []byte { return []byte("client") }, CIDPathMigrationRRC),
+		WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
+		WithSRTPMasterKeyIdentifier([]byte{1}),
+	}, []ServerOption{
+		WithCertificates(cert),
+		WithConnectionID(func() []byte { return []byte("server") }, CIDPathMigrationRRC),
+		WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
+		WithSRTPMasterKeyIdentifier([]byte{2}),
+	})
+	require.NoError(t, client.configErr)
+	require.NoError(t, server.configErr)
+	require.NoError(t, client.handshakeError)
+	require.NoError(t, server.handshakeError)
+	t.Cleanup(func() { _ = client.conn.Close(); _ = server.conn.Close() })
+	peerMKI := bytes.Clone(dtlsstate.CommonState(server.conn.state).RemoteSRTPMasterKeyIdentifier)
+	require.Equal(t, []byte{1}, peerMKI)
 
-	var restored State
-	restored.deserialize(*serialized)
-	serialized.PeerSRTPMKI[0] = 0xff
-	require.Equal(t, []byte{1, 2}, restored.peerSRTPMKI)
-}
-
-func TestStatePreservesReturnRoutabilityCheck(t *testing.T) {
-	state := State{
-		CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		rrcNegotiated: true,
-	}
-	serialized, err := state.serialize()
+	state, err := server.conn.ExportState()
 	require.NoError(t, err)
-
+	data, err := state.MarshalBinary()
+	require.NoError(t, err)
 	var restored State
-	restored.deserialize(*serialized)
+	require.NoError(t, restored.UnmarshalBinary(data))
+	require.Equal(t, peerMKI, restored.peerSRTPMKI)
 	require.True(t, restored.rrcNegotiated)
+	require.Equal(t, SRTP_AES128_CM_HMAC_SHA1_80, restored.srtpProtectionProfile)
+}
+
+func TestUnmarshalBinaryRejectsDTLS12State(t *testing.T) {
+	for _, version := range []protocol.Version{0, protocol.Version1_2} {
+		var buf bytes.Buffer
+		require.NoError(t, gob.NewEncoder(&buf).Encode(serializedState{Version: version, CipherSuiteID: 0xc02b}))
+		var state State
+		require.ErrorIs(t, state.UnmarshalBinary(buf.Bytes()), dtlserrors.ErrInvalidProtocolVersionState)
+	}
 }
 
 func TestResume(t *testing.T) {
@@ -60,7 +66,6 @@ func TestResume(t *testing.T) {
 		version protocol.Version
 		suite   cryptosuite.ID
 	}{
-		{"DTLS12", protocol.Version1_2, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		{"DTLS13/AES128", protocol.Version1_3, cryptosuite.TLS_AES_128_GCM_SHA256},
 		{"DTLS13/AES256", protocol.Version1_3, cryptosuite.TLS_AES_256_GCM_SHA384},
 		{"DTLS13/ChaCha20", protocol.Version1_3, cryptosuite.TLS_CHACHA20_POLY1305_SHA256},
@@ -71,13 +76,11 @@ func TestResume(t *testing.T) {
 				require.NoError(t, err)
 				client, server := handshakePair(t, []ClientOption{
 					WithInsecureSkipVerify(true), WithCipherSuites(test.suite),
-					WithMinVersion(test.version), WithMaxVersion(test.version),
 					WithConnectionID(func() []byte { return []byte("client") }, CIDPathMigrationReject),
 					WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
 					WithSRTPMasterKeyIdentifier([]byte{1}),
 				}, []ServerOption{
 					WithCertificates(cert), WithCipherSuites(test.suite),
-					WithMinVersion(test.version), WithMaxVersion(test.version),
 					WithConnectionID(func() []byte { return []byte("server") }, CIDPathMigrationReject),
 					WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
 					WithSRTPMasterKeyIdentifier([]byte{2}),

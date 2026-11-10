@@ -25,14 +25,12 @@ const (
 	maxDTLSCiphertextRecordLen = (1 << 14) + 256
 )
 
-// RecordConfig selects fixed-header fields. Version is the wire version.
-// ConnectionID must be nonempty exactly when ContentType is ContentTypeConnectionID.
+// RecordConfig selects DTLSPlaintext header fields. Version is the wire version.
 type RecordConfig struct {
 	ContentType    protocol.ContentType
 	Version        protocol.Version
 	Epoch          uint16
 	SequenceNumber uint64
-	ConnectionID   []byte
 }
 
 // CiphertextConfig selects unified record wire fields. SequenceNumber is the
@@ -51,27 +49,21 @@ func MarshalRecord(config RecordConfig, payload []byte) ([]byte, error) {
 	if len(payload) > math.MaxUint16 {
 		return nil, ErrInvalidPacketLength
 	}
-	if len(config.ConnectionID) > maxConnectionIDLength {
-		return nil, dtlserrors.ErrCIDTooBig
-	}
 	if config.SequenceNumber > MaxSequenceNumber {
 		return nil, dtlserrors.ErrSequenceNumberOverflow
 	}
-	if config.ContentType == 0 || protocol.IsDTLS13Ciphertext(config.ContentType) ||
-		(config.ContentType == protocol.ContentTypeConnectionID) != (len(config.ConnectionID) != 0) {
+	if config.ContentType == 0 || protocol.IsDTLS13Ciphertext(config.ContentType) {
 		return nil, dtlserrors.ErrInvalidContentType
 	}
 	if config.Version != protocol.Version1_0 && config.Version != protocol.Version1_2 {
 		return nil, dtlserrors.ErrUnsupportedProtocolVersion
 	}
-	headerLen := FixedHeaderSize + len(config.ConnectionID)
-	out := make([]byte, headerLen+len(payload))
+	out := make([]byte, FixedHeaderSize+len(payload))
 	out[0], out[1], out[2] = byte(config.ContentType), config.Version.Major(), config.Version.Minor()
 	binary.BigEndian.PutUint16(out[3:], config.Epoch)
 	util.PutBigEndianUint48(out[5:], config.SequenceNumber)
-	copy(out[11:], config.ConnectionID)
-	binary.BigEndian.PutUint16(out[headerLen-2:], uint16(len(payload))) //nolint:gosec // Checked above.
-	copy(out[headerLen:], payload)
+	binary.BigEndian.PutUint16(out[FixedHeaderSize-2:], uint16(len(payload))) //nolint:gosec // Checked above.
+	copy(out[FixedHeaderSize:], payload)
 
 	return out, nil
 }
@@ -124,7 +116,6 @@ func ParseRecord(raw []byte, cidLength int) (ParsedRecord, error) {
 		if version != protocol.Version1_0 && version != protocol.Version1_2 {
 			return ParsedRecord{}, dtlserrors.ErrUnsupportedProtocolVersion
 		}
-		record.cidLen = headerLen - FixedHeaderSize
 	}
 
 	return record, nil
@@ -150,12 +141,7 @@ func (r ParsedRecord) ConnectionID() []byte {
 		return nil
 	}
 
-	offset := 11
-	if r.IsUnified() {
-		offset = 1
-	}
-
-	return r.raw[offset : offset+r.cidLen]
+	return r.raw[1 : 1+r.cidLen]
 }
 
 // ContentType returns the fixed header's outer type, or zero for unified records.
@@ -233,12 +219,10 @@ func (r ParsedRecord) LengthPresent() bool {
 
 // UnpackDatagramConfig configures datagram framing.
 type UnpackDatagramConfig struct {
-	// TargetVersion selects record forms; zero permits both DTLS 1.2 and 1.3.
-	TargetVersion protocol.Version
 	// CIDLength is the known receive CID length used to locate record fields.
 	CIDLength int
-	// CIDRequired requires CID on each protected DTLS 1.2 record, or at least
-	// once per DTLS 1.3 datagram containing unified records.
+	// CIDRequired requires a CID at least once per datagram containing
+	// unified records.
 	CIDRequired bool
 
 	noUnkeyedLiterals struct{}
@@ -274,13 +258,13 @@ func UnpackDatagram(datagram []byte, config UnpackDatagramConfig) (records [][]b
 }
 
 func recordHasCID(record []byte, unified bool) bool {
-	return (unified && record[0]&recordwire.CIDBit != 0) || record[0] == byte(protocol.ContentTypeConnectionID)
+	return unified && record[0]&recordwire.CIDBit != 0
 }
 
 func nextRecord(datagram []byte, config UnpackDatagramConfig) ([]byte, error) {
 	contentType := protocol.ContentType(datagram[0])
 	unified := protocol.IsDTLS13Ciphertext(contentType)
-	if err := validateRecordContentType(contentType, unified, config.TargetVersion); err != nil {
+	if err := validateRecordContentType(contentType, unified); err != nil {
 		return nil, err
 	}
 
@@ -292,7 +276,7 @@ func nextRecord(datagram []byte, config UnpackDatagramConfig) ([]byte, error) {
 		return nil, ErrInvalidPacketLength
 	}
 	if !unified {
-		if err := validateLegacyRecordHeader(datagram, contentType, config); err != nil {
+		if err := validatePlaintextRecordHeader(datagram); err != nil {
 			return nil, err
 		}
 	}
@@ -300,22 +284,19 @@ func nextRecord(datagram []byte, config UnpackDatagramConfig) ([]byte, error) {
 	return datagram[:headerLen+payloadLen], nil
 }
 
-func validateRecordContentType(contentType protocol.ContentType, unified bool, version protocol.Version) error {
-	if version == protocol.Version1_2 && unified ||
-		version == protocol.Version1_3 && !unified && !isDTLS13PlaintextContentType(contentType) {
+func validateRecordContentType(contentType protocol.ContentType, unified bool) error {
+	if !unified && !isDTLS13PlaintextContentType(contentType) {
 		return dtlserrors.ErrInvalidContentType
 	}
 
 	return nil
 }
 
-func validateLegacyRecordHeader(datagram []byte, contentType protocol.ContentType, config UnpackDatagramConfig) error {
-	epoch := binary.BigEndian.Uint16(datagram[3:5])
-	if config.TargetVersion == protocol.Version1_3 && epoch != 0 {
+// DTLSPlaintext records only use epoch 0.
+// https://www.rfc-editor.org/rfc/rfc9147#section-4
+func validatePlaintextRecordHeader(datagram []byte) error {
+	if binary.BigEndian.Uint16(datagram[3:5]) != 0 {
 		return dtlserrors.ErrInvalidEpoch
-	}
-	if config.CIDRequired && epoch != 0 && contentType != protocol.ContentTypeConnectionID {
-		return dtlserrors.ErrInvalidCiphertextHeader
 	}
 
 	return nil
@@ -329,11 +310,7 @@ func validateUnpackDatagramConfig(config UnpackDatagramConfig) error {
 		return ErrInvalidPacketLength
 	}
 
-	if config.TargetVersion == 0 || config.TargetVersion == protocol.Version1_2 || config.TargetVersion == protocol.Version1_3 {
-		return nil
-	}
-
-	return dtlserrors.ErrUnsupportedProtocolVersion
+	return nil
 }
 
 func isDTLS13PlaintextContentType(contentType protocol.ContentType) bool {

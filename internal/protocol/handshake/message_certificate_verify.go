@@ -81,7 +81,7 @@ func (m *MessageCertificateVerify) validateMarshal() error {
 		return dtlserrors.ErrInvalidSignHashAlgorithm
 	}
 
-	// CertificateVerify in DTLS 1.2 encodes hash/signature as 1 byte each.
+	// The two bytes form the SignatureScheme code point.
 	scheme := tls.SignatureScheme(uint16(m.HashAlgorithm)<<8 | uint16(m.SignatureAlgorithm))
 	var alg signaturehash.Algorithm
 	if err := alg.Unmarshal(scheme); err != nil {

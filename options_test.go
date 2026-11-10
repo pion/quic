@@ -23,9 +23,7 @@ import (
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsnet "github.com/pion/dtls/v4/internal/net"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
-	handshake12 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls12"
 	handshake13 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -279,17 +277,6 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 			require.ErrorIs(t, serverOptionsError(t, WithClientAuth(value)), dtlserrors.ErrInvalidClientAuthType)
 		}
 	})
-
-	t.Run("InvalidExtendedMasterSecretType", func(t *testing.T) {
-		require.ErrorIs(t, clientOptionsError(t, WithExtendedMasterSecret(-1)), dtlserrors.ErrInvalidExtendedMasterSecretType)
-		require.ErrorIs(t, serverOptionsError(t, WithExtendedMasterSecret(100)), dtlserrors.ErrInvalidExtendedMasterSecretType)
-	})
-
-	t.Run("InvalidVersions", func(t *testing.T) {
-		for _, option := range []ClientOption{WithMinVersion(0), WithMaxVersion(0)} {
-			require.ErrorIs(t, clientOptionsError(t, option), dtlserrors.ErrUnsupportedProtocolVersion)
-		}
-	})
 }
 
 func TestBoundedNumericOptionValues(t *testing.T) {
@@ -314,75 +301,10 @@ func TestBoundedNumericOptionValues(t *testing.T) {
 	}
 }
 
-func TestX25519MLKEM768RequiresDTLS13(t *testing.T) {
-	max12 := []Option{WithMaxVersion(protocol.Version1_2), WithEllipticCurves(elliptic.X25519MLKEM768)}
-	max13 := []Option{WithMaxVersion(protocol.Version1_3), WithEllipticCurves(elliptic.X25519MLKEM768)}
-	exact13 := []Option{WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithEllipticCurves(elliptic.X25519MLKEM768)}
-	for _, test := range []struct {
-		name        string
-		server      bool
-		opts        []Option
-		wantErr     error
-		checkBounds bool
-	}{
-		{"DTLS12OnlyClient", false, max12, dtlserrors.ErrUnsupportedEllipticCurveVersion, false},
-		{"DTLS12OnlyServer", true, max12, dtlserrors.ErrUnsupportedEllipticCurveVersion, false},
-		{"DualStackMLKEMOnlyClient", false, max13, nil, true},
-		{"DualStackMLKEMOnlyServer", true, max13, nil, true},
-		{"DTLS13OnlyClient", false, exact13, nil, false},
-		{"DTLS13OnlyServer", true, exact13, nil, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			conn, err := newSharedOptionsConn(t, test.server, test.opts...)
-			require.ErrorIs(t, err, test.wantErr)
-			if test.checkBounds {
-				require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MinVersion)
-				require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MaxVersion)
-			}
-		})
-	}
-	t.Run("DualStackWithClassicalFallback", func(t *testing.T) {
-		opts := []Option{WithMaxVersion(protocol.Version1_3), WithEllipticCurves(elliptic.X25519MLKEM768, elliptic.X25519)}
-		for _, server := range []bool{false, true} {
-			_, err := newSharedOptionsConn(t, server, opts...)
-			require.NoError(t, err)
-		}
-	})
-}
-
-func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
-	t.Run("DTLS13SuitesSelectDTLS13", func(t *testing.T) {
-		client, err := newOptionsClient(t, WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256))
-		require.NoError(t, err)
-		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MinVersion)
-		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MaxVersion)
-	})
-
-	t.Run("DTLS12SuitesSelectDTLS12", func(t *testing.T) {
-		client, err := newOptionsClient(t, WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256))
-		require.NoError(t, err)
-		require.Equal(t, protocol.Version1_2, client.handshakeConfig.MinVersion)
-		require.Equal(t, protocol.Version1_2, client.handshakeConfig.MaxVersion)
-	})
-
-	t.Run("DTLS12SuitesAndDTLS13CurvesAreRejected", func(t *testing.T) {
-		err := clientOptionsError(t, WithMaxVersion(protocol.Version1_3), WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithEllipticCurves(elliptic.X25519MLKEM768))
-		require.ErrorIs(t, err, dtlserrors.ErrNoCommonProtocolVersion)
-	})
-
-	t.Run("DTLS12SuitesWithExactDTLS13AreRejected", func(t *testing.T) {
-		err := clientOptionsError(t, WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256))
-		require.Error(t, err)
-	})
-}
-
 func TestDefaultsAreApplied(t *testing.T) {
 	for _, server := range []bool{false, true} {
 		conn, err := newSharedOptionsConn(t, server)
 		require.NoError(t, err)
-		require.Equal(t, protocol.Version1_2, conn.handshakeConfig.MinVersion)
-		require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MaxVersion)
-		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret), conn.handshakeConfig.ExtendedMasterSecret)
 		require.Equal(t, time.Second, conn.handshakeConfig.InitialRetransmitInterval)
 		require.Equal(t, defaultMTU, conn.maximumTransmissionUnit)
 		require.Equal(t, uint(defaultReplayProtectionWindow), conn.replayProtectionWindow)
@@ -392,22 +314,20 @@ func TestDefaultsAreApplied(t *testing.T) {
 // TestOptionsOverrideDefaults verifies that options override defaults.
 func TestOptionsOverrideDefaults(t *testing.T) {
 	t.Run("ClientOptionsOverrideDefaults", func(t *testing.T) {
-		client, err := newOptionsClient(t, WithExtendedMasterSecret(RequireExtendedMasterSecret), WithFlightInterval(2*time.Second), WithMTU(1500), WithReplayProtectionWindow(128))
+		client, err := newOptionsClient(t, WithFlightInterval(2*time.Second), WithMTU(1500), WithReplayProtectionWindow(128))
 		require.NoError(t, err)
 
 		config := client.handshakeConfig
-		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequireExtendedMasterSecret), config.ExtendedMasterSecret)
 		require.Equal(t, 2*time.Second, config.InitialRetransmitInterval)
 		require.Equal(t, 1500, client.maximumTransmissionUnit)
 		require.Equal(t, uint(128), client.replayProtectionWindow)
 	})
 
 	t.Run("ServerOptionsOverrideDefaults", func(t *testing.T) {
-		server, err := newOptionsServer(t, WithExtendedMasterSecret(DisableExtendedMasterSecret), WithFlightInterval(3*time.Second), WithMTU(1400), WithReplayProtectionWindow(256), WithClientAuth(RequireAndVerifyClientCert))
+		server, err := newOptionsServer(t, WithFlightInterval(3*time.Second), WithMTU(1400), WithReplayProtectionWindow(256), WithClientAuth(RequireAndVerifyClientCert))
 		require.NoError(t, err)
 
 		config := server.handshakeConfig
-		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(DisableExtendedMasterSecret), config.ExtendedMasterSecret)
 		require.Equal(t, 3*time.Second, config.InitialRetransmitInterval)
 		require.Equal(t, 1400, server.maximumTransmissionUnit)
 		require.Equal(t, uint(256), server.replayProtectionWindow)
@@ -421,7 +341,7 @@ func TestOptionImmutability(t *testing.T) {
 	cert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	certs := []tls.Certificate{cert}
-	suites := []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+	suites := []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}
 	schemes := []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256}
 	profiles := []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}
 	protocols := []string{"h2", "http/1.1"}
@@ -436,7 +356,7 @@ func TestOptionImmutability(t *testing.T) {
 		want   any
 	}{
 		"certificates":            {[]ClientOption{WithCertificates(certs...)}, func() { _ = append(certs, cert) }, func(c *Conn) any { return len(c.handshakeConfig.LocalCertificates) }, 1},
-		"cipherSuites":            {[]ClientOption{WithCipherSuites(suites...)}, func() { suites[0] = cryptosuite.TLS_PSK_WITH_AES_128_CCM_8 }, func(c *Conn) any { return c.handshakeConfig.LocalCipherSuites[0].ID() }, suites[0]},
+		"cipherSuites":            {[]ClientOption{WithCipherSuites(suites...)}, func() { suites[0] = cryptosuite.TLS_AES_256_GCM_SHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalCipherSuites[0].ID() }, suites[0]},
 		"signatureSchemes":        {[]ClientOption{WithSignatureSchemes(schemes...)}, func() { schemes[0] = tls.ECDSAWithP384AndSHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalSignatureSchemes[0] }, expectedScheme[0]},
 		"srtpProtectionProfiles":  {[]ClientOption{WithSRTPProtectionProfiles(profiles...)}, func() { profiles[0] = SRTP_AES128_CM_HMAC_SHA1_32 }, func(c *Conn) any { return c.handshakeConfig.LocalSRTPProtectionProfiles[0] }, profiles[0]},
 		"SupportedProtocols":      {[]ClientOption{WithSupportedProtocols(protocols...)}, func() { protocols[0] = "grpc" }, func(c *Conn) any { return c.handshakeConfig.SupportedProtocols }, []string{"h2", "http/1.1"}},
@@ -465,42 +385,20 @@ func TestOptionConfiguration(t *testing.T) {
 	cases := map[string]struct {
 		clientOpts []ClientOption
 		serverOpts []ServerOption
-		resumeOpts []Option
 		isClient   bool
 		wantAnyErr bool
 		expErr     error
 	}{
-		"resumed PSK client": {isClient: true, resumeOpts: []Option{
-			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
-			WithPSK(func() ([]PSK, error) {
-				return []PSK{{Identity: []byte("client"), Key: []byte("key")}}, nil
-			}, nil),
-		}},
-		"resumed PSK server": {resumeOpts: []Option{
-			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
-			WithPSK(nil, func(identities [][]byte) (*PSK, error) {
-				return &PSK{Identity: identities[0], Key: []byte("key")}, nil
-			}),
-		}},
-		"psk and Certificate, valid cipher suites": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
-			return &PSK{Identity: identities[0], Key: []byte("key")}, nil
-		}), WithCertificates(cert)}},
-		"psk and Certificate, no psk cipher suite": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
-			return &PSK{Identity: identities[0], Key: []byte("key")}, nil
-		}), WithCertificates(cert)}, expErr: dtlserrors.ErrNoAvailablePSKCipherSuite},
-		"psk and Certificate, no non-psk cipher suite": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
-			return &PSK{Identity: identities[0], Key: []byte("key")}, nil
-		}), WithCertificates(cert)}, expErr: dtlserrors.ErrNoAvailableCertificateCipherSuite},
-		"Invalid private key":            {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey})}, expErr: dtlserrors.ErrInvalidPrivateKey},
-		"PrivateKey without Certificate": {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{PrivateKey: cert.PrivateKey})}, expErr: dtlserrors.ErrInvalidCertificate},
+		"Invalid private key":            {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey})}, expErr: dtlserrors.ErrInvalidPrivateKey},
+		"PrivateKey without Certificate": {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{PrivateKey: cert.PrivateKey})}, expErr: dtlserrors.ErrInvalidCertificate},
 		"Invalid cipher suites": {
 			clientOpts: []ClientOption{WithCipherSuites(0x0000)},
 			wantAnyErr: true,
 		},
-		"Valid configuration": {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithCertificates(cert, tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey})}},
+		"Valid configuration": {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithCertificates(cert, tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey})}},
 		"Valid configuration with get certificate": {
 			serverOpts: []ServerOption{
-				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
 				WithGetCertificate(func(*ClientHelloInfo) (*tls.Certificate, error) {
 					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
 				}),
@@ -508,7 +406,7 @@ func TestOptionConfiguration(t *testing.T) {
 		},
 		"Valid configuration with get client certificate": {
 			clientOpts: []ClientOption{
-				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
 				WithGetClientCertificate(func(*CertificateRequestInfo) (*tls.Certificate, error) {
 					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
 				}),
@@ -520,25 +418,6 @@ func TestOptionConfiguration(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var err error
 			switch {
-			case testCase.resumeOpts != nil:
-				ca, cb := packetPipe()
-				t.Cleanup(func() {
-					_ = ca.Close()
-					_ = cb.Close()
-				})
-				state := &State{
-					resumeToken: new(atomic.Bool),
-					isClient:    testCase.isClient, version: protocol.Version1_2,
-					CipherSuiteID: cryptosuite.TLS_PSK_WITH_AES_128_CCM_8,
-					masterSecret:  make([]byte, 48), localEpoch: 1, remoteEpoch: 1, handshakeComplete: true,
-				}
-				var conn *Conn
-				conn, err = Resume(state, ca, ca.RemoteAddr(), testCase.resumeOpts...)
-				if err == nil {
-					t.Cleanup(func() { _ = conn.Close() })
-					assert.Equal(t, testCase.isClient, conn.handshakeConfig.GetPSKs != nil)
-					assert.Equal(t, !testCase.isClient, conn.handshakeConfig.SelectPSK != nil)
-				}
 			case testCase.clientOpts != nil:
 				err = clientOptionsError(t, testCase.clientOpts...)
 			default:
@@ -590,15 +469,7 @@ func TestECHOptions(t *testing.T) {
 	require.NotEqual(t, key.PrivateKey, server.echKeys[0].PrivateKey)
 	conn, err := newOptionsClient(t, clientOption)
 	require.NoError(t, err)
-	require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MinVersion)
-	require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MaxVersion)
 	require.Equal(t, client.echConfigList, conn.handshakeConfig.ECHConfigList)
-	conn, err = newOptionsClient(t, clientOption, WithMinVersion(protocol.Version1_2))
-	require.NoError(t, err)
-	require.ErrorIs(t, conn.Handshake(), dtlserrors.ErrUnsupportedProtocolVersion)
-	conn, err = newOptionsClient(t, clientOption, WithMinVersion(protocol.Version1_2), WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256))
-	require.NoError(t, err)
-	require.ErrorIs(t, conn.Handshake(), dtlserrors.ErrUnsupportedProtocolVersion)
 	conn, err = newOptionsClient(t, WithECH(WithECHConfigList([]byte{0, 4, 0xfe, 0x0d, 0, 0})))
 	require.NoError(t, err)
 	require.Error(t, conn.Handshake())
@@ -652,37 +523,20 @@ func TestDefaultEllipticCurves(t *testing.T) {
 func TestCertificateRequestMessageHook(t *testing.T) {
 	certificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	for _, test := range []struct {
-		name    string
-		version protocol.Version
-	}{
-		{"DTLS12", protocol.Version1_2},
-		{"DTLS13", protocol.Version1_3},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var calls atomic.Int32
-			option := WithCertificateRequestMessageHook(func(request handshake.Message) handshake.Message {
-				switch request.(type) {
-				case *handshake12.MessageCertificateRequest:
-					assert.Equal(t, protocol.Version1_2, test.version)
-				case *handshake13.MessageCertificateRequest:
-					assert.Equal(t, protocol.Version1_3, test.version)
-				default:
-					assert.Failf(t, "unexpected certificate request type", "%T", request)
-				}
-				calls.Add(1)
+	var calls atomic.Int32
+	option := WithCertificateRequestMessageHook(func(request handshake.Message) handshake.Message {
+		assert.IsType(t, &handshake13.MessageCertificateRequest{}, request)
+		calls.Add(1)
 
-				return request
-			})
-			client, server := handshakePair(t, []ClientOption{
-				WithInsecureSkipVerify(true), WithMinVersion(test.version), WithMaxVersion(test.version),
-			}, []ServerOption{
-				WithCertificates(certificate), WithMinVersion(test.version), WithMaxVersion(test.version),
-				WithClientAuth(RequestClientCert), option,
-			})
-			require.NoError(t, client.handshakeError)
-			require.NoError(t, server.handshakeError)
-			assert.EqualValues(t, 1, calls.Load())
-		})
-	}
+		return request
+	})
+	client, server := handshakePair(t, []ClientOption{
+		WithInsecureSkipVerify(true),
+	}, []ServerOption{
+		WithCertificates(certificate),
+		WithClientAuth(RequestClientCert), option,
+	})
+	require.NoError(t, client.handshakeError)
+	require.NoError(t, server.handshakeError)
+	assert.EqualValues(t, 1, calls.Load())
 }

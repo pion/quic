@@ -22,7 +22,6 @@ import (
 
 	"github.com/pion/dtls/v4"
 	"github.com/pion/dtls/v4/internal/crypto/selfsign"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"golang.org/x/term"
 )
 
@@ -95,7 +94,6 @@ func serve(ctx context.Context) error {
 		peerStore := &connectionStore{sessionStore: store}
 		conn, err := dtls.DetachedServer(peer,
 			dtls.WithCertificates(certificate), dtls.WithSessionStore(peerStore, dtls.WithMaxEarlyDataSize(earlyLimit)),
-			dtls.WithMinVersion(protocol.Version1_3), dtls.WithMaxVersion(protocol.Version1_3),
 			dtls.WithInsecureSkipVerifyHello(true)) // HRR cookies prevent 0-RTT. Only do this if you want to do 0-RTT and have another way to validate the paths.
 		if err != nil {
 			return err
@@ -181,8 +179,7 @@ func dial(store *sessionStore, early bool) (*dtls.DetachedConn, *net.UDPConn, ne
 		limit = earlyLimit
 	}
 	conn, err := dtls.DetachedClient(peer, dtls.WithRootCAs(roots), dtls.WithServerName("localhost"),
-		dtls.WithSessionStore(store, dtls.WithMaxEarlyDataSize(limit)),
-		dtls.WithMinVersion(protocol.Version1_3), dtls.WithMaxVersion(protocol.Version1_3))
+		dtls.WithSessionStore(store, dtls.WithMaxEarlyDataSize(limit)))
 	if err != nil {
 		_ = udp.Close()
 	}

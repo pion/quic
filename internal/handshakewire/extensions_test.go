@@ -12,7 +12,6 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +41,7 @@ func TestDecodeExtensionListUsesMessageContext(t *testing.T) {
 	encoded, err := extension.MarshalList([]extension.Value{selected})
 	require.NoError(t, err)
 
-	serverHello, err := DecodeExtensionList(encoded, ContextServerHello13)
+	serverHello, err := DecodeExtensionList(encoded, ContextServerHello)
 	require.NoError(t, err)
 	require.IsType(t, &extension13.SelectedVersion{}, serverHello[0])
 
@@ -220,7 +219,7 @@ func TestExtensionBlockOrderingAndDependencies(t *testing.T) {
 }
 
 func TestExtensionBlockValidatesPlacementBeforePayload(t *testing.T) {
-	_, err := DecodeRawExtensions([]extension.Raw{{Type: extension.TypeALPN, Data: []byte{0x00, 0x00}}, {Type: extension.TypeExtendedMasterSecret}}, ContextEncryptedExtensions)
+	_, err := DecodeRawExtensions([]extension.Raw{{Type: extension.TypeALPN, Data: []byte{0x00, 0x00}}, {Type: extension.TypePSKKeyExchangeModes}}, ContextEncryptedExtensions)
 	assert.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)
 	assertExtensionAlert(t, err, alert.IllegalParameter)
 }
@@ -259,22 +258,20 @@ func FuzzDecodeExtensionBlock(f *testing.F) {
 }
 
 func allExtensionContexts() []Context {
-	return []Context{ContextClientHello, ContextServerHello12, ContextServerHello13, ContextHelloRetryRequest, ContextEncryptedExtensions, ContextCertificateRequest, ContextCertificateEntry, ContextNewSessionTicket}
+	return []Context{ContextClientHello, ContextServerHello, ContextHelloRetryRequest, ContextEncryptedExtensions, ContextCertificateRequest, ContextCertificateEntry, ContextNewSessionTicket}
 }
 
 func expectedExtensionRegistry() map[extension.Type]map[Context]extensionPayloadValue {
 	return map[extension.Type]map[Context]extensionPayloadValue{
-		extension.TypeServerName:            {ContextClientHello: &extension.ServerNameOffer{}, ContextServerHello12: &extension.ServerNameAck{}, ContextEncryptedExtensions: &extension.ServerNameAck{}},
-		extension.TypeSupportedGroups:       {ContextClientHello: &extension.SupportedGroups{}, ContextEncryptedExtensions: &extension.SupportedGroups{}},
-		extension.TypeSupportedPointFormats: {ContextClientHello: &extension12.SupportedPointFormats{}, ContextServerHello12: &extension12.SupportedPointFormats{}},
-		extension.TypeSignatureAlgorithms:   {ContextClientHello: &extension.SignatureAlgorithms{}, ContextCertificateRequest: &extension.SignatureAlgorithms{}},
-		extension.TypeUseSRTP:               {ContextClientHello: &extension.SRTPOffer{}, ContextServerHello12: &extension.SRTPSelection{}, ContextEncryptedExtensions: &extension.SRTPSelection{}},
-		extension.TypeALPN:                  {ContextClientHello: &extension.ALPNOffer{}, ContextServerHello12: &extension.ALPNSelection{}, ContextEncryptedExtensions: &extension.ALPNSelection{}},
-		extension.TypeExtendedMasterSecret:  {ContextClientHello: &extension12.ExtendedMasterSecret{}, ContextServerHello12: &extension12.ExtendedMasterSecret{}},
-		extension.TypePreSharedKey:          {ContextClientHello: &extension13.OfferedPSKs{}, ContextServerHello13: &extension13.SelectedPSK{}},
-		extension.TypeEarlyData:             {ContextClientHello: &extension13.EarlyData{}, ContextEncryptedExtensions: &extension13.EarlyData{}, ContextNewSessionTicket: &extension13.MaxEarlyData{}},
-		extension.TypeSupportedVersions:     {ContextClientHello: &extension13.OfferedVersions{}, ContextServerHello13: &extension13.SelectedVersion{}, ContextHelloRetryRequest: &extension13.SelectedVersion{}},
-		extension.TypeCookie:                {ContextClientHello: &extension13.Cookie{}, ContextHelloRetryRequest: &extension13.Cookie{}},
+		extension.TypeServerName:          {ContextClientHello: &extension.ServerNameOffer{}, ContextEncryptedExtensions: &extension.ServerNameAck{}},
+		extension.TypeSupportedGroups:     {ContextClientHello: &extension.SupportedGroups{}, ContextEncryptedExtensions: &extension.SupportedGroups{}},
+		extension.TypeSignatureAlgorithms: {ContextClientHello: &extension.SignatureAlgorithms{}, ContextCertificateRequest: &extension.SignatureAlgorithms{}},
+		extension.TypeUseSRTP:             {ContextClientHello: &extension.SRTPOffer{}, ContextEncryptedExtensions: &extension.SRTPSelection{}},
+		extension.TypeALPN:                {ContextClientHello: &extension.ALPNOffer{}, ContextEncryptedExtensions: &extension.ALPNSelection{}},
+		extension.TypePreSharedKey:        {ContextClientHello: &extension13.OfferedPSKs{}, ContextServerHello: &extension13.SelectedPSK{}},
+		extension.TypeEarlyData:           {ContextClientHello: &extension13.EarlyData{}, ContextEncryptedExtensions: &extension13.EarlyData{}, ContextNewSessionTicket: &extension13.MaxEarlyData{}},
+		extension.TypeSupportedVersions:   {ContextClientHello: &extension13.OfferedVersions{}, ContextServerHello: &extension13.SelectedVersion{}, ContextHelloRetryRequest: &extension13.SelectedVersion{}},
+		extension.TypeCookie:              {ContextClientHello: &extension13.Cookie{}, ContextHelloRetryRequest: &extension13.Cookie{}},
 		extension.TypePSKKeyExchangeModes: {
 			ContextClientHello: &extension13.PSKKeyExchangeModes{},
 		},
@@ -286,10 +283,9 @@ func expectedExtensionRegistry() map[extension.Type]map[Context]extensionPayload
 			ContextClientHello: &extension13.PostHandshakeAuth{},
 		},
 		extension.TypeSignatureAlgorithmsCert: {ContextClientHello: &extension.CertificateSignatureAlgorithms{}, ContextCertificateRequest: &extension.CertificateSignatureAlgorithms{}},
-		extension.TypeKeyShare:                {ContextClientHello: &extension13.ClientKeyShare{}, ContextServerHello13: &extension13.ServerKeyShare{}, ContextHelloRetryRequest: &extension13.RetryKeyShare{}},
-		extension.TypeConnectionID:            {ContextClientHello: &extension.ConnectionID{}, ContextServerHello12: &extension.ConnectionID{}, ContextServerHello13: &extension.ConnectionID{}},
-		extension.TypeReturnRoutabilityCheck:  {ContextClientHello: &extension.ReturnRoutabilityCheck{}, ContextServerHello12: &extension.ReturnRoutabilityCheck{}, ContextServerHello13: &extension.ReturnRoutabilityCheck{}},
-		extension.TypeRenegotiationInfo:       {ContextClientHello: &extension12.RenegotiationInfo{}, ContextServerHello12: &extension12.RenegotiationInfo{}},
+		extension.TypeKeyShare:                {ContextClientHello: &extension13.ClientKeyShare{}, ContextServerHello: &extension13.ServerKeyShare{}, ContextHelloRetryRequest: &extension13.RetryKeyShare{}},
+		extension.TypeConnectionID:            {ContextClientHello: &extension.ConnectionID{}, ContextServerHello: &extension.ConnectionID{}},
+		extension.TypeReturnRoutabilityCheck:  {ContextClientHello: &extension.ReturnRoutabilityCheck{}, ContextServerHello: &extension.ReturnRoutabilityCheck{}},
 	}
 }
 

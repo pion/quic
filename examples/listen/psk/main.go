@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"net"
 	"time"
@@ -14,20 +13,9 @@ import (
 	"github.com/pion/dtls/v4"
 	"github.com/pion/dtls/v4/examples/util"
 	"github.com/pion/dtls/v4/internal/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/internal/protocol"
 )
 
 func main() {
-	dtls12 := flag.Bool("dtls12", false, "use DTLS 1.2 instead of DTLS 1.3")
-	flag.Parse()
-
-	version := protocol.Version1_3
-	cipherSuite := ciphersuite.TLS_AES_128_GCM_SHA256
-	if *dtls12 {
-		version = protocol.Version1_2
-		cipherSuite = ciphersuite.TLS_PSK_WITH_AES_128_CCM_8
-	}
-
 	// Prepare the IP to connect to
 	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4444}
 
@@ -41,12 +29,7 @@ func main() {
 
 			return &dtls.PSK{Identity: identities[0], Key: []byte{0xAB, 0xC1, 0x23}}, nil
 		}),
-		dtls.WithMinVersion(version),
-		dtls.WithMaxVersion(version),
-		dtls.WithCipherSuites(cipherSuite),
-		// EMS applies only to DTLS 1.2, binding the master secret to the handshake transcript.
-		// DTLS 1.3 binds traffic secrets to the transcript through its key schedule without EMS.
-		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+		dtls.WithCipherSuites(ciphersuite.TLS_AES_128_GCM_SHA256),
 	)
 	util.Check(err)
 	defer func() {

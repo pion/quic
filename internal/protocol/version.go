@@ -7,6 +7,9 @@ package protocol
 // Version represents a DTLS protocol version.
 type Version uint16
 
+// Only DTLS 1.3 is negotiated. Version1_0 and Version1_2 remain because
+// DTLS 1.3 still writes them as legacy_record_version and legacy_version.
+// https://www.rfc-editor.org/rfc/rfc9147#section-5.3
 const (
 	Version1_0 Version = 0xfeff
 	Version1_2 Version = 0xfefd

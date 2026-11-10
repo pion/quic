@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-// Package signaturehash provides the SignatureHashAlgorithm as defined in TLS 1.2
+// Package signaturehash maps TLS signature schemes to hash and signature algorithms.
 package signaturehash
 
 import (
@@ -16,7 +16,6 @@ import (
 	"github.com/pion/dtls/v4/internal/crypto/hash"
 	"github.com/pion/dtls/v4/internal/crypto/signature"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/internal/protocol"
 )
 
 // Algorithm is a signature/hash algorithm pairs which may be used in
@@ -28,7 +27,7 @@ type Algorithm struct {
 	Signature signature.Algorithm
 }
 
-// Algorithms returns signature algorithms compatible with DTLS 1.2 / TLS 1.2.
+// Algorithms returns the default signature_algorithms offer.
 //
 // IMPORTANT: order in this slice determines priority used by SelectSignatureScheme.
 //
@@ -59,26 +58,26 @@ func Algorithms() []Algorithm {
 		// {hash.SHA384, signature.RSA_PSS_PSS_SHA384},
 		// {hash.SHA512, signature.RSA_PSS_PSS_SHA512},
 
-		// RSA PKCS#1 v1.5 schemes (legacy, DTLS 1.2)
+		// RSA PKCS#1 v1.5 schemes, only valid for certificate signatures
 		{hash.SHA256, signature.RSA},
 		{hash.SHA384, signature.RSA},
 		{hash.SHA512, signature.RSA},
 	}
 }
 
-// SelectSignatureScheme returns the most preferred compatible scheme for version.
-func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey, version protocol.Version) (Algorithm, error) {
+// SelectSignatureScheme returns the most preferred scheme that the key can use
+// for a DTLS 1.3 CertificateVerify.
+func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey) (Algorithm, error) {
 	signer, ok := privateKey.(crypto.Signer)
 	if !ok {
 		return Algorithm{}, dtlserrors.ErrInvalidPrivateKey
 	}
 
-	is13 := version == protocol.Version1_3
 	for _, ss := range sigs {
-		if !ss.validForVersion(version) {
+		if !ss.validForCertificateVerify() {
 			continue
 		}
-		if ss.isCompatible(signer, is13) {
+		if ss.isCompatible(signer) {
 			return ss, nil
 		}
 	}
@@ -86,24 +85,18 @@ func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey, versi
 	return Algorithm{}, dtlserrors.ErrNoAvailableSignatureSchemes
 }
 
-func (a Algorithm) validForVersion(version protocol.Version) bool {
-	if a.Signature.IsUnsupported() {
-		return false
-	}
-	if version != protocol.Version1_3 {
-		return !a.Signature.IsPSS()
-	}
-
-	return a.Signature != signature.RSA && !a.Hash.Insecure() && a.Hash != hash.SHA224
+// https://www.rfc-editor.org/rfc/rfc8446#section-4.2.3
+func (a Algorithm) validForCertificateVerify() bool {
+	return !a.Signature.IsUnsupported() && a.Signature != signature.RSA && !a.Hash.Insecure() && a.Hash != hash.SHA224
 }
 
 // isCompatible checks that given private key is compatible with the signature scheme.
-func (a *Algorithm) isCompatible(signer crypto.Signer, is13 bool) bool {
+func (a *Algorithm) isCompatible(signer crypto.Signer) bool {
 	switch key := signer.Public().(type) {
 	case ed25519.PublicKey:
 		return a.Signature == signature.Ed25519
 	case *ecdsa.PublicKey:
-		return a.Signature == signature.ECDSA && (!is13 || a.matchesECDSACurve(key))
+		return a.Signature == signature.ECDSA && a.matchesECDSACurve(key)
 	case *rsa.PublicKey:
 		// RSA keys are compatible with both PKCS#1 v1.5 and PSS signatures
 		return a.Signature == signature.RSA || a.Signature.IsPSS()

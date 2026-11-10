@@ -24,14 +24,13 @@ import (
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlshash "github.com/pion/dtls/v4/internal/crypto/hash"
+	"github.com/pion/dtls/v4/internal/crypto/keyagreement"
 	"github.com/pion/dtls/v4/internal/crypto/keyschedule"
-	"github.com/pion/dtls/v4/internal/crypto/prf"
 	"github.com/pion/dtls/v4/internal/crypto/selfsign"
 	"github.com/pion/dtls/v4/internal/crypto/signature"
 	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
-	dtlsflight12 "github.com/pion/dtls/v4/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsfragmentbuffer "github.com/pion/dtls/v4/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v4/internal/handshake"
@@ -370,7 +369,7 @@ func newFlight13ProtectedServerFlightFixtureFromClientHello(t *testing.T, cfg *d
 
 	clientKeypair := state.LocalKeypairs[group]
 	require.NotNil(t, clientKeypair)
-	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	keyAgreementSecret, err := keyagreement.SharedSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
 	handshakeSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), firstPSKSecret13(state), keyAgreementSecret, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
 	require.NoError(t, err)
@@ -510,10 +509,7 @@ func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 		LocalCipherSuites:           []dtlsconfig.CipherSuite{cipherSuite},
 		EllipticCurves:              testCurves13,
 		InitialRetransmitInterval:   time.Second,
-		ExtendedMasterSecret:        dtlsconfig.RequestExtendedMasterSecret,
 		Log:                         loggerFactory.NewLogger("dtls"),
-		MinVersion:                  protocol.Version1_3,
-		MaxVersion:                  protocol.Version1_3,
 		LocalSignatureSchemes:       signaturehash.Algorithms(),
 		LocalCertSignatureSchemes:   nil,
 		LocalSRTPProtectionProfiles: nil,
@@ -717,10 +713,10 @@ func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 			peerKeypair, err := elliptic.GenerateKeypair(entry.Group)
 			require.NoError(t, err)
 
-			localSecret, err := prf.PreMasterSecret(peerKeypair.PublicKey, localKeypair.PrivateKey, entry.Group)
+			localSecret, err := keyagreement.SharedSecret(peerKeypair.PublicKey, localKeypair.PrivateKey, entry.Group)
 			require.NoError(t, err)
 
-			peerSecret, err := prf.PreMasterSecret(localKeypair.PublicKey, peerKeypair.PrivateKey, entry.Group)
+			peerSecret, err := keyagreement.SharedSecret(localKeypair.PublicKey, peerKeypair.PrivateKey, entry.Group)
 			require.NoError(t, err)
 
 			assert.Equal(t, peerSecret, localSecret)
@@ -768,13 +764,13 @@ func TestFlight13_1GenerateClientHelloIncludesX25519MLKEM768KeyShare(t *testing.
 	require.NoError(t, err)
 	assert.Len(t, serverKeypair.PublicKey, elliptic.X25519MLKEM768ServerPublicKeySize)
 
-	clientSecret, err := prf.PreMasterSecret(
+	clientSecret, err := keyagreement.SharedSecret(
 		serverKeypair.PublicKey,
 		localKeypair.PrivateKey,
 		elliptic.X25519MLKEM768,
 	)
 	require.NoError(t, err)
-	serverSecret, err := prf.PreMasterSecret(
+	serverSecret, err := keyagreement.SharedSecret(
 		localKeypair.PublicKey,
 		serverKeypair.PrivateKey,
 		elliptic.X25519MLKEM768,
@@ -1018,7 +1014,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.NoError(t, err)
 	clientKeypair := state.LocalKeypairs[group]
 	require.NotNil(t, clientKeypair)
-	expected, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	expected, err := keyagreement.SharedSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
 	expectedSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), firstPSKSecret13(state), expected, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
 	require.NoError(t, err)
@@ -1222,7 +1218,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHello1Hash)
 	clientKeypair := state.LocalKeypairs[group]
 	require.NotNil(t, clientKeypair)
-	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	keyAgreementSecret, err := keyagreement.SharedSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
 	secrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), firstPSKSecret13(state), keyAgreementSecret, hashTranscript13(messageHash, helloRetryRequestCanonical, clientHello2Canonical, serverHelloCanonical))
 	require.NoError(t, err)
@@ -2366,7 +2362,7 @@ func seedFlight13RetryRequest(
 	if request := state.HelloRetryRequest; request.HasCookie || request.HasSelectedGroup {
 		return
 	}
-	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true})
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true})
 	retry, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
 	if pull.Err != nil || !pull.Ready || !ok {
 		return
@@ -2438,7 +2434,7 @@ func TestFlight13_2Parse(t *testing.T) {
 		assert.Equal(t, elliptic.X25519MLKEM768, state.LocalKeypair.Curve)
 		assert.Len(t, state.LocalKeypair.PublicKey, elliptic.X25519MLKEM768ServerPublicKeySize)
 
-		clientSecret, err := prf.PreMasterSecret(state.LocalKeypair.PublicKey, clientKeypair.PrivateKey, elliptic.X25519MLKEM768)
+		clientSecret, err := keyagreement.SharedSecret(state.LocalKeypair.PublicKey, clientKeypair.PrivateKey, elliptic.X25519MLKEM768)
 		require.NoError(t, err)
 		assert.Equal(t, clientSecret, state.KeyAgreementSecret)
 		assert.Len(t, state.KeyAgreementSecret, elliptic.X25519MLKEM768SharedSecretSize)
@@ -3174,9 +3170,18 @@ func TestFlight13_0ParseRejectsVersionMismatch(t *testing.T) {
 	for _, extensions := range [][]extension.Value{
 		nil,
 		{&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_2}}},
+		// A typical DTLS 1.2 ClientHello: no supported_versions or key_share,
+		// with ec_point_formats, extended_master_secret, and renegotiation_info.
+		{
+			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519, elliptic.P256}},
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0804}},
+			extension.Raw{Type: 0x000b, Data: []byte{0x01, 0x00}},
+			extension.Raw{Type: 0x0017},
+			extension.Raw{Type: 0xff01, Data: []byte{0x00}},
+		},
 	} {
 		cfg := testHandshakeConfig13(t)
-		cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
+		cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)}
 		cache := dtlsflight.NewCache()
 		pushFlight13_0ClientHello(t, cache, cfg, extensions)
 		next, alt, err := flight13ParseForTest(t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{
@@ -3188,17 +3193,10 @@ func TestFlight13_0ParseRejectsVersionMismatch(t *testing.T) {
 	}
 }
 
-func TestFlight12RejectsVersionMismatchBeforeCipherSuites(t *testing.T) {
-	for _, flight := range []dtlsflight12.Flight{dtlsflight12.Flight0, dtlsflight12.Flight2} {
-		t.Run(flight.String(), func(t *testing.T) {
-			cfg := testHandshakeConfig13(t)
-			cache := dtlsflight.NewCache()
-			pushFlight13_0ClientHello(t, cache, cfg, requiredClientHello13Extensions(t, cfg))
-			next, alt, err, ok := dtlsflight12.Parse(t.Context(), flight, nil, dtlsstate.Activate12(newTestState13(t, false)), cache, cfg)
-			require.True(t, ok)
-			require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
-			require.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, alt)
-			require.Zero(t, next)
-		})
+func adaptFlightConn(conn *Conn) dtlsflight.Conn {
+	if conn == nil {
+		return nil
 	}
+
+	return handshakeConn{conn}
 }

@@ -5,11 +5,9 @@
 package handshake
 
 import (
-	"github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/internal/protocol"
-	handshake12 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls12"
 	handshake13 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls13"
 	"github.com/pion/dtls/v4/internal/util"
 )
@@ -20,20 +18,15 @@ type Type = handshakewire.Type
 
 // Types of DTLS Handshake messages we know about.
 const (
-	TypeHelloRequest        = handshakewire.TypeHelloRequest
 	TypeClientHello         = handshakewire.TypeClientHello
 	TypeServerHello         = handshakewire.TypeServerHello
-	TypeHelloVerifyRequest  = handshakewire.TypeHelloVerifyRequest
 	TypeNewSessionTicket    = handshakewire.TypeNewSessionTicket
 	TypeEncryptedExtensions = handshakewire.TypeEncryptedExtensions
 	TypeRequestConnectionID = handshakewire.TypeRequestConnectionID
 	TypeNewConnectionID     = handshakewire.TypeNewConnectionID
 	TypeCertificate         = handshakewire.TypeCertificate
-	TypeServerKeyExchange   = handshakewire.TypeServerKeyExchange
 	TypeCertificateRequest  = handshakewire.TypeCertificateRequest
-	TypeServerHelloDone     = handshakewire.TypeServerHelloDone
 	TypeCertificateVerify   = handshakewire.TypeCertificateVerify
-	TypeClientKeyExchange   = handshakewire.TypeClientKeyExchange
 	TypeFinished            = handshakewire.TypeFinished
 	TypeKeyUpdate           = handshakewire.TypeKeyUpdate
 	// TypeMessageHash is a synthetic TLS 1.3 transcript-only handshake type.
@@ -56,21 +49,11 @@ type Message interface {
 	Type() Type
 }
 
-// Handshake protocol is responsible for selecting a cipher spec and
-// generating a master secret, which together comprise the primary
-// cryptographic parameters associated with a secure session.  The
-// handshake protocol can also optionally authenticate parties who have
-// certificates signed by a trusted certificate authority.
-// https://tools.ietf.org/html/rfc5246#section-7.3
+// Handshake is a DTLS 1.3 handshake message with its DTLS header.
+// https://www.rfc-editor.org/rfc/rfc9147#section-5.2
 type Handshake struct {
 	Header  Header
 	Message Message
-
-	KeyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
-
-	// Version selects version-dependent message formats during Unmarshal.
-	// Zero uses DTLS 1.3.
-	Version protocol.Version
 }
 
 // ContentType returns what kind of content this message is carying.
@@ -149,7 +132,7 @@ func (h *Handshake) Unmarshal(data []byte) error {
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	message, err := newHandshakeMessage(Type(data[0]), h.KeyExchangeAlgorithm, h.Version)
+	message, err := newHandshakeMessage(Type(data[0]))
 	if err != nil {
 		return err
 	}
@@ -158,49 +141,22 @@ func (h *Handshake) Unmarshal(data []byte) error {
 	return h.Message.Unmarshal(data[HeaderLength:])
 }
 
-func newHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm, version protocol.Version) (Message, error) {
-	if version != 0 && version != protocol.Version1_2 && version != protocol.Version1_3 {
-		return nil, dtlserrors.ErrUnsupportedProtocolVersion
-	}
-
-	switch messageType {
-	case TypeCertificate:
-		if version == protocol.Version1_2 {
-			return &handshake12.MessageCertificate{}, nil
-		}
-
-		return &handshake13.MessageCertificate{}, nil
-	case TypeCertificateRequest:
-		if version == protocol.Version1_2 {
-			return &handshake12.MessageCertificateRequest{}, nil
-		}
-
-		return &handshake13.MessageCertificateRequest{}, nil
-	default:
-		return newCommonHandshakeMessage(messageType, keyExchangeAlgorithm)
-	}
-}
-
-func newCommonHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm) (Message, error) {
+func newHandshakeMessage(messageType Type) (Message, error) {
 	switch messageType {
 	case TypeClientHello:
 		return &MessageClientHello{}, nil
-	case TypeHelloVerifyRequest:
-		return &MessageHelloVerifyRequest{}, nil
 	case TypeServerHello:
 		return &MessageServerHello{}, nil
-	case TypeServerKeyExchange:
-		return &MessageServerKeyExchange{KeyExchangeAlgorithm: keyExchangeAlgorithm}, nil
-	case TypeServerHelloDone:
-		return &MessageServerHelloDone{}, nil
-	case TypeClientKeyExchange:
-		return &MessageClientKeyExchange{KeyExchangeAlgorithm: keyExchangeAlgorithm}, nil
+	case TypeCertificate:
+		return &handshake13.MessageCertificate{}, nil
+	case TypeCertificateRequest:
+		return &handshake13.MessageCertificateRequest{}, nil
 	default:
-		return newAdditionalHandshakeMessage(messageType)
+		return newPostHelloHandshakeMessage(messageType)
 	}
 }
 
-func newAdditionalHandshakeMessage(messageType Type) (Message, error) {
+func newPostHelloHandshakeMessage(messageType Type) (Message, error) {
 	switch messageType {
 	case TypeFinished:
 		return &MessageFinished{}, nil

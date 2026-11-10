@@ -23,7 +23,6 @@ import (
 	"github.com/pion/dtls/v4"
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/mdns/v2"
 	"golang.org/x/net/ipv4"
 )
@@ -635,8 +634,6 @@ func newDetachedConn(role roleConfig, peer net.Addr) (*dtls.DetachedConn, error)
 			dtls.WithPSK(func() ([]dtls.PSK, error) {
 				return []dtls.PSK{psk}, nil
 			}, nil),
-			dtls.WithMinVersion(protocol.Version1_3),
-			dtls.WithMaxVersion(protocol.Version1_3),
 			dtls.WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
 			curves,
 			dtls.WithFlightInterval(2*time.Second),
@@ -653,8 +650,6 @@ func newDetachedConn(role roleConfig, peer net.Addr) (*dtls.DetachedConn, error)
 
 			return nil, nil
 		}),
-		dtls.WithMinVersion(protocol.Version1_3),
-		dtls.WithMaxVersion(protocol.Version1_3),
 		dtls.WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
 		curves,
 		dtls.WithFlightInterval(2*time.Second),

@@ -14,7 +14,6 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 )
 
@@ -29,15 +28,11 @@ import (
 // https://www.rfc-editor.org/rfc/rfc9846#section-4.3
 //
 // CertificateEntry is the representation of the CT context.
-// ServerHello is split because DTLS 1.2 and DTLS 1.3
-// different extension sets.
-// https://www.rfc-editor.org/rfc/rfc9147#section-5.3
 type Context uint8
 
 const (
 	ContextClientHello Context = iota
-	ContextServerHello12
-	ContextServerHello13
+	ContextServerHello
 	ContextHelloRetryRequest
 	ContextEncryptedExtensions
 	ContextCertificateRequest
@@ -49,10 +44,8 @@ func (c Context) String() string {
 	switch c {
 	case ContextClientHello:
 		return "ClientHello"
-	case ContextServerHello12:
-		return "DTLS 1.2 ServerHello"
-	case ContextServerHello13:
-		return "DTLS 1.3 ServerHello"
+	case ContextServerHello:
+		return "ServerHello"
 	case ContextHelloRetryRequest:
 		return "HelloRetryRequest"
 	case ContextEncryptedExtensions:
@@ -85,24 +78,19 @@ type extensionPayloadFactory func() extensionPayloadValue
 var extensionRegistry = map[extension.Type]map[Context]extensionPayloadFactory{
 	extension.TypeServerName: {
 		ContextClientHello:         func() extensionPayloadValue { return &extension.ServerNameOffer{} },
-		ContextServerHello12:       func() extensionPayloadValue { return &extension.ServerNameAck{} },
 		ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.ServerNameAck{} },
 	},
-	extension.TypeSupportedGroups:       {ContextClientHello: func() extensionPayloadValue { return &extension.SupportedGroups{} }, ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.SupportedGroups{} }},
-	extension.TypeSupportedPointFormats: {ContextClientHello: func() extensionPayloadValue { return &extension12.SupportedPointFormats{} }, ContextServerHello12: func() extensionPayloadValue { return &extension12.SupportedPointFormats{} }},
-	extension.TypeSignatureAlgorithms:   {ContextClientHello: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }, ContextCertificateRequest: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }},
+	extension.TypeSupportedGroups:     {ContextClientHello: func() extensionPayloadValue { return &extension.SupportedGroups{} }, ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.SupportedGroups{} }},
+	extension.TypeSignatureAlgorithms: {ContextClientHello: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }, ContextCertificateRequest: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }},
 	extension.TypeUseSRTP: {
 		ContextClientHello:         func() extensionPayloadValue { return &extension.SRTPOffer{} },
-		ContextServerHello12:       func() extensionPayloadValue { return &extension.SRTPSelection{} },
 		ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.SRTPSelection{} },
 	},
 	extension.TypeALPN: {
 		ContextClientHello:         func() extensionPayloadValue { return &extension.ALPNOffer{} },
-		ContextServerHello12:       func() extensionPayloadValue { return &extension.ALPNSelection{} },
 		ContextEncryptedExtensions: func() extensionPayloadValue { return &extension.ALPNSelection{} },
 	},
-	extension.TypeExtendedMasterSecret: {ContextClientHello: func() extensionPayloadValue { return &extension12.ExtendedMasterSecret{} }, ContextServerHello12: func() extensionPayloadValue { return &extension12.ExtendedMasterSecret{} }},
-	extension.TypePreSharedKey:         {ContextClientHello: func() extensionPayloadValue { return &extension13.OfferedPSKs{} }, ContextServerHello13: func() extensionPayloadValue { return &extension13.SelectedPSK{} }},
+	extension.TypePreSharedKey: {ContextClientHello: func() extensionPayloadValue { return &extension13.OfferedPSKs{} }, ContextServerHello: func() extensionPayloadValue { return &extension13.SelectedPSK{} }},
 	extension.TypeEarlyData: {
 		ContextClientHello:         func() extensionPayloadValue { return &extension13.EarlyData{} },
 		ContextEncryptedExtensions: func() extensionPayloadValue { return &extension13.EarlyData{} },
@@ -110,7 +98,7 @@ var extensionRegistry = map[extension.Type]map[Context]extensionPayloadFactory{
 	},
 	extension.TypeSupportedVersions: {
 		ContextClientHello:       func() extensionPayloadValue { return &extension13.OfferedVersions{} },
-		ContextServerHello13:     func() extensionPayloadValue { return &extension13.SelectedVersion{} },
+		ContextServerHello:       func() extensionPayloadValue { return &extension13.SelectedVersion{} },
 		ContextHelloRetryRequest: func() extensionPayloadValue { return &extension13.SelectedVersion{} },
 	},
 	extension.TypeCookie:                  {ContextClientHello: func() extensionPayloadValue { return &extension13.Cookie{} }, ContextHelloRetryRequest: func() extensionPayloadValue { return &extension13.Cookie{} }},
@@ -121,20 +109,17 @@ var extensionRegistry = map[extension.Type]map[Context]extensionPayloadFactory{
 	extension.TypeSignatureAlgorithmsCert: {ContextClientHello: func() extensionPayloadValue { return &extension.CertificateSignatureAlgorithms{} }, ContextCertificateRequest: func() extensionPayloadValue { return &extension.CertificateSignatureAlgorithms{} }},
 	extension.TypeKeyShare: {
 		ContextClientHello:       func() extensionPayloadValue { return &extension13.ClientKeyShare{} },
-		ContextServerHello13:     func() extensionPayloadValue { return &extension13.ServerKeyShare{} },
+		ContextServerHello:       func() extensionPayloadValue { return &extension13.ServerKeyShare{} },
 		ContextHelloRetryRequest: func() extensionPayloadValue { return &extension13.RetryKeyShare{} },
 	},
 	extension.TypeConnectionID: {
-		ContextClientHello:   func() extensionPayloadValue { return &extension.ConnectionID{} },
-		ContextServerHello12: func() extensionPayloadValue { return &extension.ConnectionID{} },
-		ContextServerHello13: func() extensionPayloadValue { return &extension.ConnectionID{} },
+		ContextClientHello: func() extensionPayloadValue { return &extension.ConnectionID{} },
+		ContextServerHello: func() extensionPayloadValue { return &extension.ConnectionID{} },
 	},
 	extension.TypeReturnRoutabilityCheck: {
-		ContextClientHello:   func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
-		ContextServerHello12: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
-		ContextServerHello13: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
+		ContextClientHello: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
+		ContextServerHello: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
 	},
-	extension.TypeRenegotiationInfo: {ContextClientHello: func() extensionPayloadValue { return &extension12.RenegotiationInfo{} }, ContextServerHello12: func() extensionPayloadValue { return &extension12.RenegotiationInfo{} }},
 }
 
 // DecodeExtensionList decodes an extension list for a handshake message context.

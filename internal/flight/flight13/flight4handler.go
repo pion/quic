@@ -12,7 +12,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
-	"github.com/pion/dtls/v4/internal/crypto/prf"
+	"github.com/pion/dtls/v4/internal/crypto/keyagreement"
 	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
@@ -101,7 +101,7 @@ func generateClientKeyShareSecret(state *dtlsstate.State13, cfg *dtlsconfig.Hand
 		state.LocalKeypair = keypair
 	}
 
-	keyAgreementSecret, err := prf.PreMasterSecret(selectedEntry.KeyExchange, state.LocalKeypair.PrivateKey, state.SelectedGroup)
+	keyAgreementSecret, err := keyagreement.SharedSecret(selectedEntry.KeyExchange, state.LocalKeypair.PrivateKey, state.SelectedGroup)
 	if err != nil {
 		return newClientHelloExtensionFailure(alert.IllegalParameter, err)
 	}
@@ -306,7 +306,6 @@ func serverCertificatePackets(state *dtlsstate.State13, cfg *dtlsconfig.Handshak
 	signatureScheme, err := signaturehash.SelectSignatureScheme(
 		commonSignatureSchemes,
 		signer,
-		protocol.Version1_3,
 	)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err

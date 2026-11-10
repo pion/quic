@@ -81,8 +81,7 @@ type DetachedConn struct {
 	earlyDataStatus dtlsstate.EarlyDataStatus
 	blocked         chan struct{}
 
-	established   atomic.Bool
-	quiescentSkip atomic.Bool
+	established atomic.Bool
 
 	terminalOnce sync.Once
 	terminal     chan struct{}
@@ -218,7 +217,6 @@ func (c *DetachedConn) Write(data []byte) (int, error) {
 		return 0, dtlserrors.ErrHandshakeInProgress
 	}
 
-	version := dtlsstate.CommonState(c.conn.state).LocalVersion
 	err := c.conn.writeApplicationData(context.Background(), []*dtlsflight.Outbound{{
 		Content:    &protocol.ApplicationData{Data: data},
 		Protection: dtlsflight.ProtectionCiphertext,
@@ -227,10 +225,8 @@ func (c *DetachedConn) Write(data []byte) (int, error) {
 	if err == nil {
 		n = len(data)
 	}
-	if version == protocol.Version1_3 {
-		if quiescentErr := c.waitUntilBlocked(); err == nil {
-			err = quiescentErr
-		}
+	if quiescentErr := c.waitUntilBlocked(); err == nil {
+		err = quiescentErr
 	}
 
 	return n, err

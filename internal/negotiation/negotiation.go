@@ -160,23 +160,10 @@ func clientHelloExtensions(body []byte) ([]byte, error) {
 // ValidateServerHelloResponse validates response types against the exact final ClientHello
 // offer.
 //
-// DTLS 1.2:
-// "An extension type MUST NOT appear in the ServerHello unless the same
-// extension type appeared in the corresponding ClientHello."
-//
-// https://www.rfc-editor.org/rfc/rfc5246#section-7.4.1.4
-//
-// DTLS 1.3:
 // "Implementations MUST NOT send extension responses (i.e., in the ServerHello,
 // EncryptedExtensions, HelloRetryRequest, and Certificate messages)
 // if the remote endpoint did not send the corresponding extension requests"
 // https://www.rfc-editor.org/info/rfc9846/#section-4.3
-//
-// DTLS 1.2 exception:
-// "sending a "renegotiation_info" extension in response to a ClientHello
-// containing only the SCSV is an explicit exception"
-//
-// https://www.rfc-editor.org/rfc/rfc5746#section-3.6
 func ValidateServerHelloResponse(
 	offer ClientHelloSnapshot,
 	serverHello *handshake.MessageServerHello,
@@ -185,29 +172,13 @@ func ValidateServerHelloResponse(
 	isHelloRetryRequest := bytes.Equal(random[:], handshake.HelloRetryRequestRandom())
 
 	err := ValidateResponseExtensions(offer, serverHello.Extensions, func(typ extension.Type) bool {
-		return (isHelloRetryRequest && typ == extension.TypeCookie) || (!isHelloRetryRequest && typ == extension.TypeRenegotiationInfo && clientHelloHasCipherSuite(offer, 0x00ff))
+		return isHelloRetryRequest && typ == extension.TypeCookie
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", dtlserrors.ErrInvalidServerHello, err)
 	}
 
 	return nil
-}
-
-// ValidateServerHello12Context rejects responses that the wire codec
-// classified as HelloRetryRequest or DTLS 1.3 ServerHello.
-func ValidateServerHello12Context(serverHello *handshake.MessageServerHello) error {
-	random := serverHello.Random.MarshalFixed()
-	is13 := slices.ContainsFunc(serverHello.Extensions, func(value extension.Value) bool {
-		typ := value.ExtensionType()
-
-		return typ == extension.TypeSupportedVersions || typ == extension.TypeKeyShare || typ == extension.TypePreSharedKey
-	})
-	if !bytes.Equal(random[:], handshake.HelloRetryRequestRandom()) && !is13 {
-		return nil
-	}
-
-	return negotiationError(dtlserrors.ErrInvalidServerHello, fmt.Errorf("response is not a DTLS 1.2 ServerHello: %w", dtlserrors.ErrExtensionNotAllowed), alert.IllegalParameter)
 }
 
 func ValidateResponseExtensions(offer ClientHelloSnapshot, values []extension.Value, allowed func(extension.Type) bool) error {
@@ -242,9 +213,6 @@ func FinalizeServerHello(base *handshake.MessageServerHello, hook func(handshake
 }
 
 func validateServerHelloContext(base, serverHello *handshake.MessageServerHello) error {
-	if ValidateServerHello12Context(base) == nil {
-		return ValidateServerHello12Context(serverHello)
-	}
 	if !sameServerHelloSelection(base, serverHello) {
 		return dtlserrors.ErrInvalidServerHello
 	}
@@ -319,12 +287,6 @@ func DecideConnectionID(offer ClientHelloSnapshot, responses []extension.Value) 
 	}
 
 	return nil
-}
-
-func clientHelloHasCipherSuite(offer ClientHelloSnapshot, id uint16) bool {
-	var clientHello handshake.MessageClientHello
-
-	return clientHello.Unmarshal(offer.body) == nil && slices.Contains(clientHello.CipherSuiteIDs, id)
 }
 
 func validatedClientHello(message handshake.Message) (*handshake.MessageClientHello, error) {

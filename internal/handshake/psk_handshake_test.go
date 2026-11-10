@@ -125,7 +125,7 @@ func TestFinalizeECHClientHello(t *testing.T) {
 		}
 	}
 	setFlight13HandshakeSequence(t, packets[0], 7)
-	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight1, packets, nil)
+	fsm, err := newFSM13AfterClientHello(state, dtlsflight.NewCache(), cfg, packets, nil)
 	require.NoError(t, err)
 	require.NotNil(t, fsm.transcript.echInner)
 	require.Equal(t, canonicalTranscriptHandshake13(handshake.TypeClientHello, body), fsm.transcript.Bytes())
@@ -153,7 +153,7 @@ func testECHRetryTranscript(t *testing.T, rejected bool) {
 	cfg := testHandshakeConfig13(t)
 	cfg.ECHConfigList = list
 	state, packets, _ := newFlight13ClientHelloFixture(t, cfg)
-	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight1, packets, nil)
+	fsm, err := newFSM13AfterClientHello(state, dtlsflight.NewCache(), cfg, packets, nil)
 	require.NoError(t, err)
 	suite := cfg.LocalCipherSuites[0]
 	suiteID := uint16(suite.ID())

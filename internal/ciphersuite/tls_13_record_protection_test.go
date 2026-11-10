@@ -488,29 +488,6 @@ func TestRecordNonce13(t *testing.T) {
 	assert.Equal(t, []byte{0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab}, iv)
 }
 
-func TestLegacyCIDAuthenticationData(t *testing.T) {
-	cid := []byte{1, 2, 3, 4, 5, 6, 7, 8}
-	record, err := NewLegacyRecord(protocol.ContentTypeConnectionID, protocol.Version1_2, 2, 277, cid)
-	require.NoError(t, err)
-	cid[0] = 0xff
-
-	authenticationData, err := record.AuthenticationData(1784)
-	require.NoError(t, err)
-	expected := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 25, 8, 25, 254, 253, 0, 2, 0, 0, 0, 0, 1, 21, 1, 2, 3, 4, 5, 6, 7, 8, 6, 248}
-	assert.Equal(t, expected, authenticationData)
-	authenticationData[0] = 0
-	authenticationData, err = record.AuthenticationData(1784)
-	require.NoError(t, err)
-	assert.Equal(t, expected, authenticationData)
-}
-
-func TestBuiltinCBCCapabilities(t *testing.T) {
-	cbc := ForID(cryptosuite.TLS_PSK_WITH_AES_128_CBC_SHA256).Capabilities()
-	require.NoError(t, cbc.ValidatePlaintextLen(16688, 1<<14))
-	sha1CBC := ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA).Capabilities()
-	require.NoError(t, sha1CBC.ValidatePlaintextLen(16672, 1<<14))
-}
-
 func TestNewAESGCMRecordProtection13RejectsInvalidAESKeyLength(t *testing.T) {
 	suite := testSuite13(cryptosuite.TLS_AES_256_GCM_SHA384)
 	_, err := newAESGCMRecordTrafficProtection13(

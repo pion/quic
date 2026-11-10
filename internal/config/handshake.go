@@ -8,28 +8,21 @@ import (
 	"bytes"
 	"context"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	internalstate "github.com/pion/dtls/v4/internal/state"
@@ -44,14 +37,6 @@ const (
 	RequireAnyClientCert
 	VerifyClientCertIfGiven
 	RequireAndVerifyClientCert
-)
-
-type ExtendedMasterSecretType int
-
-const (
-	RequestExtendedMasterSecret ExtendedMasterSecretType = iota
-	RequireExtendedMasterSecret
-	DisableExtendedMasterSecret
 )
 
 type (
@@ -70,33 +55,13 @@ type ClientHelloInfo struct {
 }
 
 type CertificateRequestInfo struct {
-	CertificateTypes []clientcertificate.Type
 	AcceptableCAs    [][]byte
 	SignatureSchemes []signaturehash.Algorithm
-	Version          protocol.Version
 }
 
 func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certificate) error {
-	if cri.CertificateTypes != nil {
-		signer, ok := certificate.PrivateKey.(crypto.Signer)
-		if !ok {
-			return dtlserrors.ErrInvalidPrivateKey
-		}
-		var certificateType clientcertificate.Type
-		switch signer.Public().(type) {
-		case *rsa.PublicKey:
-			certificateType = clientcertificate.RSASign
-		case *ecdsa.PublicKey, ed25519.PublicKey:
-			certificateType = clientcertificate.ECDSASign
-		default:
-			return dtlserrors.ErrInvalidPrivateKey
-		}
-		if !slices.Contains(cri.CertificateTypes, certificateType) {
-			return dtlserrors.ErrNotAcceptableCertificateChain
-		}
-	}
 	if len(cri.SignatureSchemes) > 0 {
-		if _, err := signaturehash.SelectSignatureScheme(cri.SignatureSchemes, certificate.PrivateKey, cri.Version); err != nil {
+		if _, err := signaturehash.SelectSignatureScheme(cri.SignatureSchemes, certificate.PrivateKey); err != nil {
 			return err
 		}
 	}
@@ -138,12 +103,9 @@ type HandshakeConfig struct {
 	// SelectPSK returns the selected offer index, key, and hash, or a nil key if none match.
 	SelectPSK                     func(identities [][]byte) (index int, key []byte, hash crypto.Hash, err error)
 	GetPSKs                       func() ([]internalstate.PSK, error)
-	LocalPSKCallback              func([]byte) ([]byte, error)
-	LocalPSKIdentityHint          []byte
 	LocalCipherSuites             []CipherSuite
 	LocalSignatureSchemes         []signaturehash.Algorithm
 	LocalCertSignatureSchemes     []signaturehash.Algorithm
-	ExtendedMasterSecret          ExtendedMasterSecretType
 	LocalSRTPProtectionProfiles   []SRTPProtectionProfile
 	LocalSRTPMasterKeyIdentifier  []byte
 	ServerName                    string
@@ -153,15 +115,11 @@ type HandshakeConfig struct {
 	InsecureSkipVerify            bool
 	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	VerifyConnection              func(internalstate.Active) error
-	HasSessionStore               bool
 	MaxEarlyDataSize              uint32
 	EnableEarlyData               bool
 	ClaimEarlyData                func(ticket []byte, expiresAt time.Time) (bool, error)
-	GetSession                    func(key []byte) (internalstate.Session, error)
-	SetSession                    func(key []byte, session internalstate.Session) error
 	SetSessionTicket              func(key, id, secret, identity []byte, ticket internalstate.SessionTicket) error
 	GetSessionTicket              func(key []byte, serverName string) (*internalstate.PSK, error)
-	DelSession                    func(key []byte) error
 	RootCAs                       *x509.CertPool
 	ClientCAs                     *x509.CertPool
 	InitialRetransmitInterval     time.Duration
@@ -181,21 +139,10 @@ type HandshakeConfig struct {
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook func(handshake.Message) handshake.Message
 	ResumeState                   internalstate.Active
-	MinVersion                    protocol.Version
-	MaxVersion                    protocol.Version
 	TimerFactory                  func(time.Duration) Timer
 
 	nameToCertificate map[string]*tls.Certificate
 	mu                sync.Mutex
-}
-
-// ValidateECHVersions enforces the client version policy before sending an offer.
-func (c *HandshakeConfig) ValidateECHVersions() error {
-	if c.ECHConfigList != nil && ((c.MinVersion != 0 && c.MinVersion != protocol.Version1_3) || (c.MaxVersion != 0 && c.MaxVersion != protocol.Version1_3)) {
-		return fmt.Errorf("ECH requires DTLS 1.3: %w", dtlserrors.ErrUnsupportedProtocolVersion)
-	}
-
-	return nil
 }
 
 // GenerateConnectionID returns a CID matching the configured receive length.
@@ -353,70 +300,6 @@ func (c *HandshakeConfig) SendServerName() bool {
 	return len(c.ServerName) > 0 && net.ParseIP(c.ServerName) == nil
 }
 
-func FilterCipherSuitesForCertificate(
-	cert *tls.Certificate,
-	cipherSuites []cryptosuite.Suite,
-) []cryptosuite.Suite {
-	if cert == nil || cert.PrivateKey == nil {
-		return cipherSuites
-	}
-	signer, ok := cert.PrivateKey.(crypto.Signer)
-	if !ok {
-		return cipherSuites
-	}
-
-	var certType clientcertificate.Type
-	switch signer.Public().(type) {
-	case ed25519.PublicKey, *ecdsa.PublicKey:
-		certType = clientcertificate.ECDSASign
-	case *rsa.PublicKey:
-		certType = clientcertificate.RSASign
-	}
-
-	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool {
-		return !suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate && certType != suite.CertificateType()
-	})
-}
-
-// UsableSession rejects legacy sessions and sessions belonging to another role.
-//
-// Check role, negotiated parameters, and current authentication policy.
-func (c *HandshakeConfig) UsableSession(session internalstate.Session, isClient bool) bool {
-	if !validSessionMetadata(session, isClient) {
-		return false
-	}
-	if c.ExtendedMasterSecret == RequireExtendedMasterSecret && !session.ExtendedMasterSecret {
-		return false
-	}
-	if c.ExtendedMasterSecret == DisableExtendedMasterSecret && session.ExtendedMasterSecret {
-		return false
-	}
-	var suite CipherSuite
-	for _, candidate := range c.LocalCipherSuites {
-		if candidate.ID() == session.CipherSuiteID {
-			suite = candidate
-
-			break
-		}
-	}
-	if suite == nil {
-		return false
-	}
-	if suite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey {
-		return c.usableSessionPSK(session, isClient)
-	}
-
-	return c.usableCertificateSession(session, isClient)
-}
-
-func (c *HandshakeConfig) usableCertificateSession(session internalstate.Session, isClient bool) bool {
-	if isClient {
-		return c.UsableServerCertificate(session.PeerCertificates)
-	}
-
-	return c.ClientAuth == NoClientCert || c.ClientAuth == RequestClientCert
-}
-
 func (c *HandshakeConfig) UsableServerCertificate(raw [][]byte) bool {
 	if len(raw) == 0 {
 		return false
@@ -429,10 +312,6 @@ func (c *HandshakeConfig) UsableServerCertificate(raw [][]byte) bool {
 	return c.VerifyPeerCertificate == nil || c.VerifyPeerCertificate(raw, chains) == nil
 }
 
-func validSessionMetadata(session internalstate.Session, isClient bool) bool {
-	return session.Ticket == nil && session.Version == 1 && session.IsClient == isClient && len(session.ID) != 0 && len(session.Secret) == 48
-}
-
 func (c *HandshakeConfig) verifySessionCertificate(raw [][]byte) ([][]*x509.Certificate, error) {
 	if c.InsecureSkipVerify {
 		return nil, nil
@@ -443,36 +322,4 @@ func (c *HandshakeConfig) verifySessionCertificate(raw [][]byte) ([][]*x509.Cert
 	}
 
 	return dtlscrypto.VerifyServerCert(raw, c.RootCAs, c.ServerName, algs)
-}
-
-// VerifyResumedConnection applies current authentication policy after Finished.
-func (c *HandshakeConfig) VerifyResumedConnection(state *internalstate.State12) error {
-	if state.IsClient && state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
-		if _, err := c.verifySessionCertificate(state.PeerCertificates); err != nil {
-			return err
-		}
-	}
-	if c.VerifyConnection != nil {
-		return c.VerifyConnection(state)
-	}
-
-	return nil
-}
-
-func (c *HandshakeConfig) usableSessionPSK(session internalstate.Session, isClient bool) bool {
-	var key []byte
-	var err error
-	if isClient {
-		if c.LocalPSKCallback == nil {
-			return false
-		}
-		key, err = c.LocalPSKCallback(bytes.Clone(session.IdentityHint))
-	} else {
-		if c.SelectPSK == nil {
-			return false
-		}
-		_, key, _, err = c.SelectPSK([][]byte{bytes.Clone(session.IdentityHint)})
-	}
-
-	return err == nil && len(key) > 0 && sha256.Sum256(key) == session.PSKHash
 }

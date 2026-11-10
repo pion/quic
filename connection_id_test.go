@@ -130,93 +130,6 @@ func TestOnlySendCIDGenerator(t *testing.T) {
 	}
 }
 
-func TestCIDDatagramRouter(t *testing.T) {
-	cid := []byte("abcd1234")
-	cidLen := 8
-	epochZeroRecord, err := marshalTestRecord(recordlayer.RecordConfig{Epoch: 0, Version: protocol.Version1_2}, &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify})
-	assert.NoError(t, err)
-	protectedWithoutCIDRecord, err := marshalTestRecord(recordlayer.RecordConfig{Epoch: 1, Version: protocol.Version1_2}, &protocol.ApplicationData{Data: []byte("application data")})
-	assert.NoError(t, err)
-
-	appData, err := (&protocol.ApplicationData{
-		Data: []byte("some data"),
-	}).Marshal()
-	assert.NoError(t, err)
-
-	inner, err := recordlayer.MarshalInnerPlaintext(appData, protocol.ContentTypeApplicationData, 0)
-	assert.NoError(t, err)
-
-	cidRecord, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
-		ContentType: protocol.ContentTypeConnectionID, Version: protocol.Version1_2,
-		Epoch: 1, SequenceNumber: 1, ConnectionID: cid,
-	}, inner)
-	assert.NoError(t, err)
-
-	cases := map[string]struct {
-		reason   string
-		size     int
-		datagram []byte
-		ok       bool
-		want     string
-	}{
-		"EmptyDatagram":            {reason: "If datagram is empty, we cannot extract an identifier", size: cidLen, datagram: []byte{}, ok: false, want: ""},
-		"NotADTLSRecord":           {reason: "If datagram is not a DTLS record, we cannot extract an identifier", size: cidLen, datagram: []byte("not a DTLS record"), ok: false, want: ""},
-		"NotAConnectionIDDatagram": {reason: "If datagram does not contain any Connection ID records, we cannot extract an identifier", size: cidLen, datagram: epochZeroRecord, ok: false, want: ""},
-		"ProtectedRecordWithoutCIDPrefix": {
-			reason:   "A protected DTLS 1.2 record without type 25 is invalid after CID negotiation and must not route through a later CID.",
-			size:     cidLen,
-			datagram: append(bytes.Clone(protectedWithoutCIDRecord), cidRecord...),
-			ok:       false,
-			want:     "",
-		},
-		"OneRecordConnectionID": {reason: "If datagram contains one Connection ID record, we should be able to extract it.", size: cidLen, datagram: cidRecord, ok: true, want: string(cid)},
-		"OneRecordConnectionIDAltLength": {
-			reason: "If datagram contains one Connection ID record, but it has the wrong length we should not be able to extract it.",
-			size:   cidLen,
-			datagram: func() []byte {
-				altCIDRecord, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
-					ContentType: protocol.ContentTypeConnectionID, Version: protocol.Version1_2,
-					Epoch: 1, SequenceNumber: 1, ConnectionID: []byte("abcd"),
-				}, inner)
-				assert.NoError(t, err)
-
-				return altCIDRecord
-			}(),
-			ok:   false,
-			want: "",
-		},
-		"MultipleRecordOneConnectionID": {
-			reason:   "An epoch-zero DTLS 1.2 record may precede a protected Connection ID record in the same datagram.",
-			size:     8,
-			datagram: append(bytes.Clone(epochZeroRecord), cidRecord...),
-			ok:       true,
-			want:     string(cid),
-		},
-		"MultipleRecordMultipleConnectionID": {
-			reason: "If datagram contains multiple records and multiple are Connection ID records, we should extract the first one.",
-			size:   8,
-			datagram: append(append(bytes.Clone(epochZeroRecord), func() []byte {
-				altCIDRecord, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
-					ContentType: protocol.ContentTypeConnectionID, Version: protocol.Version1_2,
-					Epoch: 1, SequenceNumber: 1, ConnectionID: []byte("1234abcd"),
-				}, inner)
-				assert.NoError(t, err)
-
-				return altCIDRecord
-			}()...), cidRecord...),
-			ok:   true,
-			want: "1234abcd",
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			cid, ok := cidDatagramRouter(tc.size)(tc.datagram)
-			assert.Equal(t, tc.ok, ok, "%s\ncidDatagramRouter mismatch", tc.reason)
-			assert.Equal(t, tc.want, cid, "%s\ncidDatagramRouter mismatch", tc.reason)
-		})
-	}
-}
-
 func TestCIDDatagramRouter13(t *testing.T) {
 	cid := []byte("abcd1234")
 	plaintextPrefix, err := marshalTestRecord(recordlayer.RecordConfig{Version: protocol.Version1_2}, &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify})
@@ -261,17 +174,14 @@ func TestCIDDatagramRouter13(t *testing.T) {
 
 func TestConnectionIDPreflight(t *testing.T) {
 	cid := []byte("own-cid!")
-	state12 := dtlsstate.NewState12(false)
-	state12.SetLocalConnectionID(cid)
 	state13 := dtlsstate.NewState13(false)
 	state13.CommitNegotiatedExtensions(&negotiation.ConnectionID{ServerCID: cid})
-	for versionName, state := range map[string]dtlsstate.Active{"DTLS12": &state12, "DTLS13": &state13} {
+	for versionName, state := range map[string]dtlsstate.Active{"DTLS13": &state13} {
 		t.Run(versionName, func(t *testing.T) {
 			conn := &Conn{state: state}
-			version := dtlsstate.CommonState(state).LocalVersion
-			own := marshalCIDPreflightRecord(t, version, cid)
-			unknown := marshalCIDPreflightRecord(t, version, []byte("missing!"))
-			prefix := marshalCIDPreflightRecord(t, version, nil)
+			own := marshalCIDPreflightRecord(t, cid)
+			unknown := marshalCIDPreflightRecord(t, []byte("missing!"))
+			prefix := marshalCIDPreflightRecord(t, nil)
 			for _, testCase := range []struct {
 				name    string
 				records [][]byte
@@ -297,24 +207,9 @@ func TestConnectionIDPreflight(t *testing.T) {
 	}
 }
 
-func marshalCIDPreflightRecord(t *testing.T, version protocol.Version, cid []byte) []byte {
+func marshalCIDPreflightRecord(t *testing.T, cid []byte) []byte {
 	t.Helper()
-	if version == protocol.Version1_3 {
-		raw, err := recordlayer.MarshalCiphertext(recordlayer.CiphertextConfig{ConnectionID: cid, SequenceNumber: 1, TwoByteSequence: true, LengthPresent: true}, make([]byte, 16))
-		assert.NoError(t, err)
-
-		return raw
-	}
-	if len(cid) == 0 {
-		raw, err := marshalTestRecord(recordlayer.RecordConfig{Version: version}, &protocol.ChangeCipherSpec{})
-		assert.NoError(t, err)
-
-		return raw
-	}
-	raw, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
-		ContentType: protocol.ContentTypeConnectionID, Version: version,
-		Epoch: 1, SequenceNumber: 1, ConnectionID: cid,
-	}, make([]byte, 16))
+	raw, err := recordlayer.MarshalCiphertext(recordlayer.CiphertextConfig{ConnectionID: cid, SequenceNumber: 1, TwoByteSequence: true, LengthPresent: true}, make([]byte, 16))
 	assert.NoError(t, err)
 
 	return raw
@@ -438,20 +333,20 @@ func TestDynamicCIDAcceptance(t *testing.T) {
 	assert.Len(t, added, 1)
 	alias[0] = 'X'
 	for _, cid := range []string{"original", "newalias"} {
-		raw := marshalCIDPreflightRecord(t, protocol.Version1_3, []byte(cid))
+		raw := marshalCIDPreflightRecord(t, []byte(cid))
 		records, unpackErr := conn.unpackDatagram(raw)
 		assert.NoError(t, unpackErr)
 		assert.Len(t, records, 1)
 		_, err = conn.unmarshalCiphertextRecord(raw, false)
 		assert.NoError(t, err)
 	}
-	unknown := marshalCIDPreflightRecord(t, protocol.Version1_3, []byte("unknown!"))
+	unknown := marshalCIDPreflightRecord(t, []byte("unknown!"))
 	_, err = conn.unpackDatagram(unknown)
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 	_, err = conn.unmarshalCiphertextRecord(unknown, false)
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
-	prefix := marshalCIDPreflightRecord(t, protocol.Version1_3, nil)
-	aliasRecord := marshalCIDPreflightRecord(t, protocol.Version1_3, added[0])
+	prefix := marshalCIDPreflightRecord(t, nil)
+	aliasRecord := marshalCIDPreflightRecord(t, added[0])
 	records, err := conn.unpackDatagram(bytes.Join([][]byte{prefix, aliasRecord}, nil))
 	assert.NoError(t, err)
 	assert.Len(t, records, 2)

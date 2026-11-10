@@ -224,8 +224,6 @@ func prepareInnerExtensions(exts []extension.Raw) ([]extension.Raw, int, error) 
 		case extension.TypeEncryptedClientHello, extension.TypeECHOuterExtensions,
 			extension.TypePreSharedKey, extension.TypeCookie:
 			return nil, 0, ErrUnsupported
-		case extension.TypeRenegotiationInfo, extension.TypeSupportedPointFormats, extension.TypeExtendedMasterSecret:
-			continue
 		case extension.TypeSupportedVersions:
 			var versions extension13.OfferedVersions
 			if versions.UnmarshalData(ext.Data) != nil || !slices.Contains(versions.Versions, protocol.Version1_3) {

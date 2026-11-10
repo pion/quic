@@ -129,31 +129,6 @@ func TestFlight3ParseValidatesAndRollsBackSRTP(t *testing.T) {
 	}
 }
 
-func TestValidateSRTPRetry(t *testing.T) {
-	initial := srtpSnapshot13(t, srtpProfile13, srtpMKI13)
-	for _, test := range []struct {
-		name      string
-		retry     negotiation.ClientHelloSnapshot
-		wantError bool
-	}{
-		{name: "identical", retry: srtpSnapshot13(t, srtpProfile13, srtpMKI13)},
-		{name: "changed MKI", retry: srtpSnapshot13(t, srtpProfile13, "other"), wantError: true},
-		{name: "removed", retry: srtpSnapshot13(t, 0, ""), wantError: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			err := negotiation.ValidateSRTPRetry(initial, test.retry)
-			if test.wantError {
-				require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
-				var dtlsAlert *alert.Alert
-				require.ErrorAs(t, err, &dtlsAlert)
-				assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 	state := dtlsstate.NewState13(false)
 	state.Cookie = []byte("cookie")

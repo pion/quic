@@ -37,8 +37,6 @@ func TestGenerateKeypair_InvalidCurve(t *testing.T) {
 }
 
 func TestGenerateKeypair_X25519MLKEM768ClientShare(t *testing.T) {
-	assert.True(t, Curves()[X25519MLKEM768])
-
 	keypair, err := GenerateKeypair(X25519MLKEM768)
 	require.NoError(t, err)
 	assert.Equal(t, X25519MLKEM768, keypair.Curve)

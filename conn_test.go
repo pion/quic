@@ -20,7 +20,6 @@ import (
 	"github.com/pion/dtls/v4/internal/closer"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	"github.com/pion/dtls/v4/internal/crypto/selfsign"
 	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -32,9 +31,8 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
-	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
-	handshake12 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls12"
+	handshake13 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls13"
 	"github.com/pion/dtls/v4/internal/protocol/recordlayer"
 	"github.com/pion/dtls/v4/internal/recordwire"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
@@ -46,10 +44,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func defaultCipherSuites() []cryptosuite.Suite {
-	return defaultCipherSuitesForVersion(protocol.Version1_2)
-}
 
 func cipherSuiteIDs(suites []cryptosuite.Suite) []uint16 {
 	ids := make([]uint16, len(suites))
@@ -104,31 +98,6 @@ func TestSequenceNumberOverflow(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	t.Run("ApplicationData", func(t *testing.T) {
-		// DTLS 1.3 rotates traffic keys; this checks DTLS 1.2 sequence exhaustion.
-		certificate, err := selfsign.GenerateSelfSigned()
-		require.NoError(t, err)
-		client, server := handshakePair(t,
-			[]ClientOption{WithInsecureSkipVerify(true), WithMaxVersion(protocol.Version1_2)},
-			[]ServerOption{WithCertificates(certificate), WithMaxVersion(protocol.Version1_2)},
-		)
-		for _, result := range []handshakeResult{client, server} {
-			require.NoError(t, result.configErr)
-			require.NoError(t, result.handshakeError)
-		}
-		ca, cb := client.conn, server.conn
-
-		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(1, recordlayer.MaxSequenceNumber)
-		n, werr := ca.Write(make([]byte, 100))
-		assert.NoError(t, werr, "Write must send message with maximum sequence number")
-		assert.Equal(t, 100, n)
-		n, werr = ca.Write(make([]byte, 100))
-		assert.ErrorIs(t, werr, dtlserrors.ErrSequenceNumberOverflow, "Write must abandonsend message with maximum sequence number")
-		assert.Zero(t, n)
-
-		assert.NoError(t, ca.Close())
-		assert.NoError(t, cb.Close())
-	})
 	t.Run("Handshake", func(t *testing.T) {
 		ca, cb, err := pipeMemory()
 		assert.NoError(t, err)
@@ -318,38 +287,6 @@ func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensio
 	return nil
 }
 
-func TestECDHEPSKHandshake(t *testing.T) {
-	for _, id := range []cryptosuite.ID{
-		cryptosuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
-		cryptosuite.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256,
-	} {
-		t.Run(id.String(), func(t *testing.T) {
-			client, server := handshakePair(t, []ClientOption{
-				WithCipherSuites(id),
-				WithPSK(func() ([]PSK, error) {
-					return []PSK{{Identity: []byte("client"), Key: []byte("key")}}, nil
-				}, nil),
-			}, []ServerOption{
-				WithCipherSuites(id),
-				WithPSK(nil, func(identities [][]byte) (*PSK, error) {
-					return &PSK{Identity: identities[0], Key: []byte("key")}, nil
-				}),
-			})
-			for _, result := range []handshakeResult{client, server} {
-				require.NoError(t, result.configErr)
-				require.NoError(t, result.handshakeError)
-				state, ok := result.conn.ConnectionState()
-				require.True(t, ok)
-				require.Equal(t, id, state.CipherSuiteID)
-			}
-			serverState, ok := server.conn.ConnectionState()
-			require.True(t, ok)
-			require.Equal(t, []byte("client"), serverState.IdentityHint)
-			exchangeResumeData(t, client.conn, server.conn)
-		})
-	}
-}
-
 func TestExportKeyingMaterial(t *testing.T) {
 	const exportLabel = "EXTRACTOR-dtls_srtp"
 
@@ -359,17 +296,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 		cipherSuite       cryptosuite.ID
 		expectedServerKey string
 		expectedClientKey string
-		contextErr        error
-		labelErr          error
 	}{
-		{
-			name: "DTLS12", version: protocol.Version1_2,
-			cipherSuite:       cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			expectedServerKey: "61099d7dcb08522ce77b",
-			expectedClientKey: "87f04002f61cf1fe8c77",
-			contextErr:        dtlserrors.ErrContextUnsupported,
-			labelErr:          dtlserrors.ErrReservedExportKeyingMaterial,
-		},
 		{
 			name: "DTLS13", version: protocol.Version1_3,
 			cipherSuite:       cryptosuite.TLS_AES_128_GCM_SHA256,
@@ -384,13 +311,10 @@ func TestExportKeyingMaterial(t *testing.T) {
 				LocalSequenceNumber: map[uint64]uint64{},
 				CipherSuite:         ciphersuite.ForID(tt.cipherSuite),
 			}
-			conn := &Conn{state: &dtlsstate.State12{Common: common}}
-			if tt.version == protocol.Version1_3 {
-				conn.state = &dtlsstate.State13{
-					Common:      common,
-					KeySchedule: dtlsstate.KeySchedule{ExporterMasterSecret: make([]byte, 32)},
-				}
-			}
+			conn := &Conn{state: &dtlsstate.State13{
+				Common:      common,
+				KeySchedule: dtlsstate.KeySchedule{ExporterMasterSecret: make([]byte, 32)},
+			}}
 
 			state, ok := conn.ConnectionState()
 			require.True(t, ok)
@@ -420,66 +344,19 @@ func TestExportKeyingMaterial(t *testing.T) {
 					assert.NotEqual(t, keyingMaterial, otherMaterial)
 
 					contextMaterial, err := state.ExportKeyingMaterial(exportLabel, []byte{0x00}, 10)
-					assert.ErrorIs(t, err, tt.contextErr)
-					if tt.contextErr == nil {
-						assert.Len(t, contextMaterial, 10)
-						assert.NotEqual(t, keyingMaterial, contextMaterial)
-					}
-
-					for label := range invalidKeyingLabels() {
-						_, err := state.ExportKeyingMaterial(label, nil, 10)
-						assert.ErrorIs(t, err, tt.labelErr, label)
-					}
+					require.NoError(t, err)
+					assert.Len(t, contextMaterial, 10)
+					assert.NotEqual(t, keyingMaterial, contextMaterial)
 				})
 			}
 		})
 	}
 }
 
-func TestShouldWrapConnectionIDUsesOnlyDTLS12(t *testing.T) {
-	state12 := dtlsstate.NewActive(false)
-	assert.False(t, state12.ShouldWrapConnectionID())
-	dtlsstate.CommonState(state12).RemoteConnectionID = []byte{0x01}
-	assert.True(t, state12.ShouldWrapConnectionID())
-
-	state13 := dtlsstate.NewState13(false)
-	state13.RemoteConnectionID = []byte{0x01}
-	assert.False(t, state13.ShouldWrapConnectionID())
-}
-
-func marshalVersionNegotiationHelloRetryRequestServerHello13(t *testing.T, cfg *dtlsconfig.HandshakeConfig, extensions []extension.Value) []byte {
-	t.Helper()
-
-	var hrrRandomFixed [handshake.RandomLength]byte
-	copy(hrrRandomFixed[:], handshake.HelloRetryRequestRandom())
-	var hrrRandom handshake.Random
-	hrrRandom.UnmarshalFixed(hrrRandomFixed)
-
-	return marshalVersionNegotiationServerHello13(t, cfg, hrrRandom, extensions)
-}
-
-func marshalVersionNegotiationServerHello13(t *testing.T, cfg *dtlsconfig.HandshakeConfig, random handshake.Random, extensions []extension.Value) []byte {
-	t.Helper()
-
-	cipherSuiteID := uint16(cfg.LocalCipherSuites[0].ID())
-	serverHello := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: extensions}
-	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
-	assert.NoError(t, err)
-
-	return rawServerHello
-}
-
 func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 	t.Helper()
 
-	cipherSuites, err := selectCipherSuites(
-		nil,
-		nil,
-		true,
-		false,
-		protocol.Version1_3,
-		protocol.Version1_3,
-	)
+	cipherSuites, err := selectCipherSuites(nil, nil)
 	assert.NoError(t, err)
 
 	loggerFactory := logging.NewDefaultLoggerFactory()
@@ -488,176 +365,11 @@ func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.Handshake
 		LocalCipherSuites:           cipherSuites,
 		EllipticCurves:              defaultCurves,
 		InitialRetransmitInterval:   time.Second,
-		ExtendedMasterSecret:        dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret),
 		Log:                         loggerFactory.NewLogger("dtls"),
-		MinVersion:                  protocol.Version1_3,
-		MaxVersion:                  protocol.Version1_3,
 		LocalSignatureSchemes:       signaturehash.Algorithms(),
 		LocalCertSignatureSchemes:   nil,
 		LocalSRTPProtectionProfiles: nil,
 	}
-}
-
-func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
-	const offeredType extension.Type = 0xfefe
-	extensions := []extension.Value{
-		extension.Raw{Type: offeredType, Data: []byte{0x01}},
-	}
-	clientHello := handshake.MessageClientHello{Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301}, CompressionMethods: []*protocol.CompressionMethod{{}}, Extensions: extensions}
-	_, offer, err := negotiation.FinalizeClientHello(&clientHello, nil)
-	require.NoError(t, err)
-
-	cfg := testVersionNegotiationHandshakeConfig13(t)
-	cfg.MinVersion = protocol.Version1_2
-	common := &dtlsstate.Common{}
-	require.NoError(t, common.LocalClientHelloSnapshots.Record(offer))
-	conn := &Conn{
-		handshakeConfig: cfg,
-		state:           &dtlsstate.State13{Common: common},
-	}
-	extensions = []extension.Value{
-		extension.Raw{Type: 0xfefd, Data: []byte{0x02}},
-	}
-	serverHello := handshake.MessageServerHello{
-		Version:    protocol.Version1_2,
-		Extensions: extensions,
-	}
-	err = conn.pickVersionFromServerHello(&serverHello)
-
-	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
-	var classified *alert.Alert
-	require.ErrorAs(t, err, &classified)
-	assert.Equal(t, alert.UnsupportedExtension, classified.Description)
-	assert.Equal(t, protocol.Version(0), common.LocalVersion)
-}
-
-func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVersions(t *testing.T) {
-	cfg := testVersionNegotiationHandshakeConfig13(t)
-	cfg.MinVersion = protocol.Version1_2
-	cfg.MaxVersion = protocol.Version1_3
-	selectedGroup := elliptic.P384
-
-	rawServerHello := marshalVersionNegotiationHelloRetryRequestServerHello13(t, cfg, []extension.Value{&extension13.RetryKeyShare{SelectedGroup: selectedGroup}})
-
-	conn := &Conn{
-		handshakeCache:  dtlsflight.NewCache(),
-		handshakeConfig: cfg,
-	}
-	conn.handshakeCache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-
-	ok, err := conn.pickVersionFromServerResponse()
-
-	assert.ErrorIs(t, err, dtlserrors.ErrMissingSupportedVersionsExtension)
-	var classified *alert.Alert
-	require.ErrorAs(t, err, &classified)
-	assert.Equal(t, alert.MissingExtension, classified.Description)
-	assert.False(t, ok)
-	assert.Equal(t, protocol.Version(0), dtlsstate.CommonState(conn.state).LocalVersion)
-}
-
-func TestPickVersionFromServerResponseRejectsUnexpectedMessage(t *testing.T) {
-	cfg := testVersionNegotiationHandshakeConfig13(t)
-	cfg.MinVersion = protocol.Version1_2
-	cfg.MaxVersion = protocol.Version1_3
-	raw, err := (&handshake.Handshake{
-		Message: &handshake.MessageFinished{VerifyData: []byte{0x01}},
-	}).Marshal()
-	require.NoError(t, err)
-
-	conn := &Conn{
-		handshakeCache:  dtlsflight.NewCache(),
-		handshakeConfig: cfg,
-	}
-	conn.handshakeCache.Push(raw, cfg.InitialEpoch, 0, handshake.TypeFinished, false)
-
-	ok, err := conn.pickVersionFromServerResponse()
-
-	assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedHandshakeMessage)
-	var classified *alert.Alert
-	require.ErrorAs(t, err, &classified)
-	assert.Equal(t, alert.UnexpectedMessage, classified.Description)
-	assert.False(t, ok)
-}
-
-func TestPickVersionFromServerResponsePreservesDecodeAlert(t *testing.T) {
-	cfg := testVersionNegotiationHandshakeConfig13(t)
-	cfg.MinVersion = protocol.Version1_2
-	cfg.MaxVersion = protocol.Version1_3
-	conn := &Conn{
-		handshakeCache:  dtlsflight.NewCache(),
-		handshakeConfig: cfg,
-	}
-	conn.handshakeCache.Push([]byte{byte(handshake.TypeServerHello)}, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-
-	ok, err := conn.pickVersionFromServerResponse()
-
-	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
-	var classified *alert.Alert
-	require.ErrorAs(t, err, &classified)
-	assert.Equal(t, alert.DecodeError, classified.Description)
-	assert.False(t, ok)
-}
-
-func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupportedVersionsEncoding(t *testing.T) {
-	cfg := testVersionNegotiationHandshakeConfig13(t)
-	cfg.MinVersion = protocol.Version1_2
-	cfg.MaxVersion = protocol.Version1_3
-	random := handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}}
-
-	rawServerHello := marshalVersionNegotiationServerHello13(
-		t,
-		cfg,
-		random,
-		[]extension.Value{
-			extension.Raw{
-				Type: extension.TypeSupportedVersions,
-				Data: []byte{
-					0x02,       // ClientHello vector length
-					0xfe, 0xfc, // DTLS v1.3
-				},
-			},
-		},
-	)
-
-	parsed := &handshake.Handshake{}
-	err := parsed.Unmarshal(rawServerHello)
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSupportedVersionsFormat)
-}
-
-func TestSelectRemoteVersionActivatesChosenState(t *testing.T) {
-	cfg := testVersionNegotiationHandshakeConfig13(t)
-	cfg.MinVersion = protocol.Version1_2
-	cfg.MaxVersion = protocol.Version1_3
-
-	commonState := &dtlsstate.Common{}
-	conn := &Conn{
-		handshakeConfig: cfg,
-		state: &dtlsstate.State12{
-			Common:                commonState,
-			HandshakeSendSequence: 3,
-		},
-	}
-	err := conn.selectRemoteVersion([]protocol.Version{protocol.Version1_3})
-	assert.NoError(t, err)
-	state13, ok := conn.state.(*dtlsstate.State13)
-	assert.True(t, ok)
-	assert.Equal(t, 3, state13.HandshakeSendSequence)
-	assert.NotNil(t, state13.LocalKeypairs)
-	assert.Equal(t, protocol.Version1_3, dtlsstate.CommonState(conn.state).LocalVersion)
-
-	err = conn.selectRemoteVersion([]protocol.Version{protocol.Version1_2})
-	assert.NoError(t, err)
-	state12, ok := conn.state.(*dtlsstate.State12)
-	assert.True(t, ok)
-	assert.Equal(t, 3, state12.HandshakeSendSequence)
-	assert.Equal(t, protocol.Version1_2, dtlsstate.CommonState(conn.state).LocalVersion)
-	commonState.IsClient = true
-	cfg.ECHConfigList = []byte{1}
-	err = conn.selectRemoteVersion([]protocol.Version{protocol.Version1_2})
-	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
-	var failure *alert.Alert
-	require.ErrorAs(t, err, &failure)
-	require.Equal(t, alert.ProtocolVersion, failure.Description)
 }
 
 type connWithCallback struct {
@@ -698,7 +410,7 @@ func TestPacketQueueWriterCopiesExactRecord(t *testing.T) {
 	assert.Same(t, &rejectedReadBuffer, rejectedLease.recyclableReadBuffer)
 }
 
-func TestReadAndBufferNoFSMQueuesExactRecordCopy(t *testing.T) {
+func TestReadAndProcessDatagramQueuesExactRecordCopy(t *testing.T) {
 	ca, cb := packetPipe()
 	defer func() {
 		assert.NoError(t, ca.Close())
@@ -727,7 +439,8 @@ func TestReadAndBufferNoFSMQueuesExactRecordCopy(t *testing.T) {
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	require.NoError(t, conn.readAndBufferNoFSM(ctx))
+	_, err = conn.readAndProcessDatagram(ctx)
+	require.NoError(t, err)
 	require.NoError(t, <-writeResult)
 	require.Len(t, conn.encryptedPackets, 1)
 	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
@@ -856,13 +569,13 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 
 	clientCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	client, err := Client(clientTransport, ca.RemoteAddr(), WithCertificates(clientCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithMTU(mtu), padding)
+	client, err := Client(clientTransport, ca.RemoteAddr(), WithCertificates(clientCert), WithInsecureSkipVerify(true), WithMTU(mtu), padding)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	server, err := Server(serverTransport, serverTransport.RemoteAddr(), WithCertificates(serverCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithMTU(mtu), padding)
+	server, err := Server(serverTransport, serverTransport.RemoteAddr(), WithCertificates(serverCert), WithInsecureSkipVerify(true), WithMTU(mtu), padding)
 	require.NoError(t, err)
 	defer func() { _ = server.Close() }()
 
@@ -899,52 +612,6 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	assert.Equal(t, dtlsflight13.EpochHandshake, ack.Records[0].Epoch)
 }
 
-func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
-	defer test.CheckRoutines(t)()
-
-	ca, cb := packetPipe()
-	defer func() {
-		_ = ca.Close()
-		_ = cb.Close()
-	}()
-
-	clientCert, err := selfsign.GenerateSelfSigned()
-	require.NoError(t, err)
-	client, err := Client(ca, ca.RemoteAddr(), WithCertificates(clientCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3))
-	require.NoError(t, err)
-	defer func() {
-		_ = client.Close()
-	}()
-
-	postSetupStarted := make(chan struct{})
-	start := client.prepareHandshakeStart13()
-	start.fsmState = dtlshandshake.StateWaiting
-	start.postSetup = func(ctx context.Context) {
-		close(postSetupStarted)
-		<-ctx.Done()
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan error, 1)
-	go func() {
-		result <- client.handshake(ctx, start)
-	}()
-
-	select {
-	case <-postSetupStarted:
-	case <-time.After(time.Second):
-		require.FailNow(t, "post-setup hook did not start")
-	}
-	cancel()
-
-	select {
-	case err = <-result:
-		assert.ErrorIs(t, err, context.Canceled)
-	case <-time.After(time.Second):
-		require.FailNow(t, "handshake did not observe context cancellation")
-	}
-}
-
 func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
 	dtlsHandshake := &handshake.Handshake{
@@ -961,69 +628,6 @@ func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
 	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket)
 	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
-}
-
-type sequenceRecordingProtection struct {
-	capabilities cryptosuite.Capabilities
-	sequences    []uint64
-}
-
-func (p *sequenceRecordingProtection) Seal(record cryptosuite.Record, plaintext []byte) ([]byte, error) {
-	p.sequences = append(p.sequences, record.RecordNumber()&recordlayer.MaxSequenceNumber)
-	protectedLen, err := p.capabilities.ProtectedLen(len(plaintext))
-	if err != nil {
-		return nil, err
-	}
-
-	return make([]byte, protectedLen), nil
-}
-
-func (*sequenceRecordingProtection) Open(cryptosuite.Record, []byte) ([]byte, error) {
-	return nil, cryptosuite.ErrAuthenticationFailed
-}
-
-func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testing.T) {
-	const (
-		epoch                = 1
-		firstSequence uint64 = 41
-		staleSequence uint64 = 7
-	)
-
-	remoteCID := []byte("remote-cid")
-	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
-	protection := &sequenceRecordingProtection{capabilities: cipherSuite.Capabilities()}
-	commonState := &dtlsstate.Common{LocalVersion: protocol.Version1_2, LocalSequenceNumber: map[uint64]uint64{1: firstSequence}, RemoteConnectionID: remoteCID, CipherSuite: cipherSuite}
-	conn := &Conn{maximumTransmissionUnit: 80, paddingLengthGenerator: func(length uint) uint { return 31 - length%32 }, state: &dtlsstate.State12{Common: commonState, Protection: protection}}
-	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 240)}}}
-	_, err := dtlsHandshake.Marshal()
-	require.NoError(t, err)
-
-	pkt := &dtlsflight.Outbound{
-		Epoch:      epoch,
-		Content:    dtlsHandshake,
-		Protection: dtlsflight.ProtectionCiphertext,
-	}
-	prepared, err := conn.prepareHandshakeRecords(pkt, dtlsHandshake)
-	require.NoError(t, err)
-	require.Greater(t, len(prepared), 1)
-
-	expectedSequences := make([]uint64, len(prepared))
-	for i, record := range prepared {
-		assert.LessOrEqual(t, len(record.raw), conn.maximumTransmissionUnit)
-		expectedSequence := firstSequence + uint64(i)
-		expectedSequences[i] = expectedSequence
-
-		header, parseErr := recordlayer.ParseRecord(record.raw, len(remoteCID))
-		require.NoError(t, parseErr)
-		assert.Equal(t, protocol.ContentTypeConnectionID, header.ContentType())
-		assert.Equal(t, remoteCID, header.ConnectionID())
-		assert.Equal(t, uint16(epoch), header.Epoch())
-		assert.Equal(t, expectedSequence, header.SequenceNumber())
-	}
-
-	// Encrypt receives this record metadata for the nonce and MAC calculation.
-	assert.Equal(t, expectedSequences, protection.sequences)
-	assert.Equal(t, firstSequence+uint64(len(expectedSequences)), commonState.LocalSequenceNumber[epoch])
 }
 
 func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
@@ -1113,7 +717,7 @@ func TestProcessProtectedHandshakePacketFiltersACKedFragments(t *testing.T) {
 	state, ok := conn.state.(*dtlsstate.State13)
 	require.True(t, ok)
 	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local"), ServerCID: []byte("peer")})
-	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 240)}}}
+	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake13.MessageCertificate{CertificateList: []handshake13.CertificateEntry{{CertificateData: bytes.Repeat([]byte{0xaa}, 240)}}}}
 	_, err := dtlsHandshake.Marshal()
 	require.NoError(t, err)
 
@@ -1180,25 +784,20 @@ func TestDTLS13WarningPreservesHandshakeProgress(t *testing.T) {
 	assert.Empty(t, conn.pendingACKs)
 }
 
-func TestAlertLevelsByVersion(t *testing.T) {
-	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
-		for _, description := range []alert.Description{alert.CloseNotify, alert.UserCanceled, alert.BadCertificate} {
-			for _, level := range []alert.Level{alert.Warning, alert.Fatal} {
-				conn, _ := newTestConnWithReadProtection(t)
-				dtlsstate.CommonState(conn.state).LocalVersion = version
-				message := &alert.Alert{Level: level, Description: description}
-				_, _, err := conn.handleRecordContent(t.Context(), message, incomingPacketState{markPacketAsValid: func() bool { return true }}, nil, nil)
-				var received *alertError
-				require.ErrorAs(t, err, &received)
-				want := level
-				if version == protocol.Version1_3 {
-					want = alert.Warning
-					if description == alert.BadCertificate {
-						want = alert.Fatal
-					}
-				}
-				assert.Equal(t, want, received.Level)
+func TestAlertLevels(t *testing.T) {
+	for _, description := range []alert.Description{alert.CloseNotify, alert.UserCanceled, alert.BadCertificate} {
+		for _, level := range []alert.Level{alert.Warning, alert.Fatal} {
+			conn, _ := newTestConnWithReadProtection(t)
+			message := &alert.Alert{Level: level, Description: description}
+			_, _, err := conn.handleRecordContent(t.Context(), message, incomingPacketState{markPacketAsValid: func() bool { return true }}, nil)
+			var received *alertError
+			require.ErrorAs(t, err, &received)
+			// DTLS 1.3 derives the level from the description.
+			want := alert.Warning
+			if description == alert.BadCertificate {
+				want = alert.Fatal
 			}
+			assert.Equal(t, want, received.Level)
 		}
 	}
 }
@@ -1508,7 +1107,7 @@ func unmarshalCiphertextRecordForTest(
 ) sealedTestRecord {
 	t.Helper()
 
-	records, err := recordlayer.UnpackDatagram(raw, recordlayer.UnpackDatagramConfig{TargetVersion: protocol.Version1_3, CIDLength: cidLength})
+	records, err := recordlayer.UnpackDatagram(raw, recordlayer.UnpackDatagramConfig{CIDLength: cidLength})
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
@@ -1736,7 +1335,7 @@ func TestRRCRequiresProtectionPolicyAndNegotiation(t *testing.T) {
 		"NotNegotiated":  {policy: CIDPathMigrationRRC, epoch: 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			state := dtlsstate.NewState12(true)
+			state := dtlsstate.NewState13(true)
 			state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid"), ReturnRoutabilityCheck: test.negotiated})
 			marked := false
 			conn := &Conn{state: &state, cidPathMigrationPolicy: test.policy}
@@ -1752,7 +1351,6 @@ func TestRRCRequiresProtectionPolicyAndNegotiation(t *testing.T) {
 					},
 				},
 				&net.UDPAddr{},
-				nil,
 			)
 
 			assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedPostHandshakeMessage)
@@ -1771,7 +1369,7 @@ func TestWriteRRCRequiresPolicyAndNegotiation(t *testing.T) {
 		"NotNegotiated":  {policy: CIDPathMigrationRRC},
 	} {
 		t.Run(name, func(t *testing.T) {
-			state := dtlsstate.NewState12(true)
+			state := dtlsstate.NewState13(true)
 			state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid"), ReturnRoutabilityCheck: test.negotiated})
 			conn := &Conn{state: &state, cidPathMigrationPolicy: test.policy}
 			err := (returnRoutabilityConn{conn: conn}).WriteRRC(t.Context(), &net.UDPAddr{}, protocol.ReturnRoutabilityCheckPathChallenge, [protocol.ReturnRoutabilityCheckCookieLength]byte{})
@@ -2039,19 +1637,15 @@ func TestDetachedConnValidInputCancelsPendingRetransmit(t *testing.T) { //nolint
 	clientAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 4444}
 	serverAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 5555}
 
-	for name, version := range map[string]protocol.Version{"DTLS12": protocol.Version1_2, "DTLS13": protocol.Version1_3} {
+	for _, name := range []string{"DTLS13"} {
 		t.Run(name, func(t *testing.T) {
 			client, err := DetachedClient(serverAddr,
 				WithInsecureSkipVerify(true),
-				WithMinVersion(version),
-				WithMaxVersion(version),
 				WithFlightInterval(time.Hour),
 			)
 			require.NoError(t, err)
 			server, err := DetachedServer(clientAddr,
 				WithCertificates(certificate),
-				WithMinVersion(version),
-				WithMaxVersion(version),
 				WithFlightInterval(time.Hour),
 			)
 			require.NoError(t, err)
@@ -2174,13 +1768,13 @@ func (r sealedTestRecord) parsed(t *testing.T) recordlayer.ParsedRecord {
 func TestConnectionStateDuringHandshake(t *testing.T) {
 	certificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+	for _, version := range []protocol.Version{protocol.Version1_3} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			ca, cb := packetPipe()
 			defer ca.Close() //nolint:errcheck
 			defer cb.Close() //nolint:errcheck
 			var client *Conn
-			client, err = Client(ca, ca.RemoteAddr(), WithInsecureSkipVerify(true), WithMaxVersion(protocol.Version1_3), WithVerifyConnection(func(*State) error {
+			client, err = Client(ca, ca.RemoteAddr(), WithInsecureSkipVerify(true), WithVerifyConnection(func(*State) error {
 				snapshot, ok := client.ConnectionState()
 				assert.True(t, ok)
 				assert.Equal(t, version, snapshot.NegotiatedVersion())
@@ -2188,7 +1782,7 @@ func TestConnectionStateDuringHandshake(t *testing.T) {
 				return nil
 			}))
 			require.NoError(t, err)
-			server, err := Server(cb, cb.RemoteAddr(), WithCertificates(certificate), WithMaxVersion(version))
+			server, err := Server(cb, cb.RemoteAddr(), WithCertificates(certificate))
 			require.NoError(t, err)
 			defer client.Close() //nolint:errcheck
 			defer server.Close() //nolint:errcheck
@@ -2248,44 +1842,20 @@ func TestDiscardMalformedDatagrams(t *testing.T) {
 }
 
 func TestHandleIncomingPacketControlRecordEpoch(t *testing.T) {
-	t.Cleanup(test.CheckRoutines(t))
-	defer test.TimeOut(10 * time.Second).Stop()
-
-	certificate, err := selfsign.GenerateSelfSigned()
-	require.NoError(t, err)
-	client, server := handshakePair(t,
-		[]ClientOption{WithInsecureSkipVerify(true), WithMaxVersion(protocol.Version1_2)},
-		[]ServerOption{WithCertificates(certificate), WithMaxVersion(protocol.Version1_2)},
-	)
-	for _, result := range []handshakeResult{client, server} {
-		require.NoError(t, result.configErr)
-		require.NoError(t, result.handshakeError)
-	}
-
 	for _, testCase := range []struct {
 		name        string
-		version     protocol.Version
 		remoteEpoch uint64
 		recordEpoch uint64
 		content     protocol.Content
 	}{
-		{name: "DTLS12/close_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}},
-		{name: "DTLS12/data_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &protocol.ApplicationData{Data: []byte("plaintext")}},
-		{name: "DTLS12/CCS_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &protocol.ChangeCipherSpec{}},
-		{name: "DTLS12/ACK_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &protocol.ACK{}},
-		{name: "DTLS13/alert_after_keys", version: protocol.Version1_3, remoteEpoch: 2, content: &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}},
-		{name: "ACK/before_keys", version: protocol.Version1_3, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
-		{name: "ACK/after_keys", version: protocol.Version1_3, remoteEpoch: 3, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
-		{name: "ACK/mixed_epochs", version: protocol.Version1_3, remoteEpoch: 3, recordEpoch: 2, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}, {Epoch: 3}}}},
+		{name: "DTLS13/alert_after_keys", remoteEpoch: 2, content: &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}},
+		{name: "ACK/before_keys", content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
+		{name: "ACK/after_keys", remoteEpoch: 3, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
+		{name: "ACK/mixed_epochs", remoteEpoch: 3, recordEpoch: 2, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}, {Epoch: 3}}}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			conn, peerProtection := newTestConnWithReadProtection(t)
 			common := dtlsstate.CommonState(conn.state)
-			common.LocalVersion = testCase.version
-			if testCase.version == protocol.Version1_2 {
-				conn.state = &dtlsstate.State12{Common: common}
-				conn.handshakeEstablished = client.conn.handshakeEstablished
-			}
 			conn.setRemoteEpoch(testCase.remoteEpoch)
 			raw, err := marshalTestRecord(recordlayer.RecordConfig{Version: protocol.Version1_2}, testCase.content)
 			require.NoError(t, err)
@@ -2328,30 +1898,15 @@ func trafficSuiteWithLimits(t *testing.T, seals, failures uint64) *limitedTraffi
 	}
 }
 
-type limitedConnectionSuite struct {
-	cryptosuite.ConnectionSuite
-}
-
-func (s *limitedConnectionSuite) ID() cryptosuite.ID { return 0xffa9 }
-
-func (s *limitedConnectionSuite) UsageLimits() cryptosuite.UsageLimits {
-	return cryptosuite.UsageLimits{MaxSealedRecords: 8, MaxAuthenticationFailures: 2}
-}
-
-func limitedTrafficPair(t *testing.T, version protocol.Version) (*Conn, *Conn) {
+func limitedTrafficPair(t *testing.T) (*Conn, *Conn) {
 	t.Helper()
 	var suite cryptosuite.Suite = trafficSuiteWithLimits(t, 8, 2)
-	if version == protocol.Version1_2 {
-		connectionSuite, ok := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256).(cryptosuite.ConnectionSuite)
-		require.True(t, ok)
-		suite = &limitedConnectionSuite{ConnectionSuite: connectionSuite}
-	}
 	certificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	custom := WithCustomCipherSuites(func() []cryptosuite.Suite { return []cryptosuite.Suite{suite} })
 	client, server := handshakePair(t,
-		[]ClientOption{WithMinVersion(version), WithMaxVersion(version), WithInsecureSkipVerify(true), WithCipherSuites(suite.ID()), custom},
-		[]ServerOption{WithMinVersion(version), WithMaxVersion(version), WithCertificates(certificate), WithCipherSuites(suite.ID()), custom})
+		[]ClientOption{WithInsecureSkipVerify(true), WithCipherSuites(suite.ID()), custom},
+		[]ServerOption{WithCertificates(certificate), WithCipherSuites(suite.ID()), custom})
 	require.NoError(t, client.configErr)
 	require.NoError(t, server.configErr)
 	require.NoError(t, client.handshakeError)
@@ -2361,7 +1916,7 @@ func limitedTrafficPair(t *testing.T, version protocol.Version) (*Conn, *Conn) {
 }
 
 func TestIndependentKeyUpdateEpochs(t *testing.T) {
-	client, server := limitedTrafficPair(t, protocol.Version1_3)
+	client, server := limitedTrafficPair(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for range 8 {
@@ -2379,9 +1934,9 @@ func TestIndependentKeyUpdateEpochs(t *testing.T) {
 }
 
 func TestConnectionKeyUsage(t *testing.T) {
-	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+	for _, version := range []protocol.Version{protocol.Version1_3} {
 		t.Run(fmt.Sprintf("%x", version), func(t *testing.T) {
-			client, server := limitedTrafficPair(t, version)
+			client, server := limitedTrafficPair(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			require.NoError(t, client.SetWriteDeadline(time.Now().Add(5*time.Second)))
@@ -2428,15 +1983,13 @@ func TestConnectionKeyUsage(t *testing.T) {
 			require.False(t, client.isConnectionClosed())
 			require.False(t, server.isConnectionClosed())
 
-			if version == protocol.Version1_3 {
-				require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
-				assert.Nil(t, server.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeKeyUpdate, Epoch: dtlsflight13.EpochApplication, IsClient: true})[0])
-				assert.Nil(t, client.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, IsClient: true})[0])
-				updated, ok := client.ConnectionState()
-				require.True(t, ok)
-				require.Equal(t, after.KeyUsage.WriteEpoch+1, updated.KeyUsage.WriteEpoch)
-				require.Positive(t, updated.KeyUsage.RemainingSealedRecords)
-			}
+			require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+			assert.Nil(t, server.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeKeyUpdate, Epoch: dtlsflight13.EpochApplication, IsClient: true})[0])
+			assert.Nil(t, client.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, IsClient: true})[0])
+			updated, ok := client.ConnectionState()
+			require.True(t, ok)
+			require.Equal(t, after.KeyUsage.WriteEpoch+1, updated.KeyUsage.WriteEpoch)
+			require.Positive(t, updated.KeyUsage.RemainingSealedRecords)
 		})
 	}
 }
@@ -2551,7 +2104,7 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 				serverStore.claimErr = context.DeadlineExceeded
 			}
 			client, err := DetachedClient(&net.UDPAddr{Port: 5555}, srtpOption, clientALPN, WithSessionStore(clientStore, WithMaxEarlyDataSize(32)),
-				WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithFlightInterval(time.Hour))
+				WithInsecureSkipVerify(true), WithFlightInterval(time.Hour))
 			require.NoError(t, err)
 			limit := uint32(32)
 			if scenario == "no policy" {
@@ -2561,7 +2114,7 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 				limit = 4
 			}
 			server, err := DetachedServer(&net.UDPAddr{Port: 4444}, srtpOption, serverALPN, WithCertificates(certificate), WithSessionStore(serverStore, WithMaxEarlyDataSize(limit)),
-				WithInsecureSkipVerifyHello(scenario != "retry"), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithFlightInterval(time.Hour))
+				WithInsecureSkipVerifyHello(scenario != "retry"), WithFlightInterval(time.Hour))
 			require.NoError(t, err)
 			if scenario == "cid" {
 				client.conn.handshakeConfig.ConnectionIDGenerator = func() []byte { return []byte{1, 2} }
@@ -2759,10 +2312,10 @@ func awaitDeadlineTest(t *testing.T, ch <-chan error) error {
 	return nil
 }
 
-func newDeadlineTestClient(t *testing.T, minVersion, maxVersion protocol.Version, blockWrite bool) (*Conn, *deadlineTestTransport) {
+func newDeadlineTestClient(t *testing.T, blockWrite bool) (*Conn, *deadlineTestTransport) {
 	t.Helper()
 	a, b := packetPipe()
-	conn, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true), WithMinVersion(minVersion), WithMaxVersion(maxVersion), WithFlightInterval(time.Hour))
+	conn, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true), WithFlightInterval(time.Hour))
 	require.NoError(t, err)
 	transport := &deadlineTestTransport{PacketConn: conn.nextConn, started: make(chan error, 1), blockWrite: blockWrite}
 	conn.nextConn = transport
@@ -2784,26 +2337,20 @@ func TestImplicitHandshakeDeadlines(t *testing.T) {
 			return err
 		},
 	}
-	for _, versions := range [][2]protocol.Version{
-		{protocol.Version1_2, protocol.Version1_2},
-		{protocol.Version1_3, protocol.Version1_3},
-		{protocol.Version1_2, protocol.Version1_3},
-	} {
-		for name, operation := range operations {
-			for _, blockWrite := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%v/%s/write=%v", versions, name, blockWrite), func(t *testing.T) {
-					conn, transport := newDeadlineTestClient(t, versions[0], versions[1], blockWrite)
-					done := make(chan error, 1)
-					go func() { done <- operation(conn) }()
-					require.NoError(t, awaitDeadlineTest(t, transport.started))
-					setDeadline := conn.SetReadDeadline
-					if blockWrite {
-						setDeadline = conn.SetWriteDeadline
-					}
-					require.NoError(t, setDeadline(time.Now().Add(-time.Second)))
-					require.ErrorIs(t, awaitDeadlineTest(t, done), context.DeadlineExceeded)
-				})
-			}
+	for name, operation := range operations {
+		for _, blockWrite := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/write=%v", name, blockWrite), func(t *testing.T) {
+				conn, transport := newDeadlineTestClient(t, blockWrite)
+				done := make(chan error, 1)
+				go func() { done <- operation(conn) }()
+				require.NoError(t, awaitDeadlineTest(t, transport.started))
+				setDeadline := conn.SetReadDeadline
+				if blockWrite {
+					setDeadline = conn.SetWriteDeadline
+				}
+				require.NoError(t, setDeadline(time.Now().Add(-time.Second)))
+				require.ErrorIs(t, awaitDeadlineTest(t, done), context.DeadlineExceeded)
+			})
 		}
 	}
 }
@@ -2811,11 +2358,11 @@ func TestImplicitHandshakeDeadlines(t *testing.T) {
 func TestReadDeadlineAfterHandshake(t *testing.T) {
 	cert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+	for range []protocol.Version{protocol.Version1_3} {
 		a, b := packetPipe()
-		client, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true), WithMinVersion(version), WithMaxVersion(version))
+		client, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true))
 		require.NoError(t, err)
-		server, err := Server(b, b.RemoteAddr(), WithCertificates(cert), WithMinVersion(version), WithMaxVersion(version))
+		server, err := Server(b, b.RemoteAddr(), WithCertificates(cert))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = client.Close(); _ = server.Close(); _ = a.Close(); _ = b.Close() })
 		deadline := time.Now().Add(5 * time.Second)
@@ -2902,52 +2449,6 @@ func TestDTLS13FutureHelloDoesNotConsumeProtectedSequence(t *testing.T) {
 	}
 }
 
-func TestVersionSelectionDiscardsSpeculativeDTLS13Handshake(t *testing.T) {
-	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
-		for _, isClient := range []bool{false, true} {
-			conn, _ := newTestConnWithReadProtection(t)
-			common := dtlsstate.CommonState(conn.state)
-			common.LocalVersion, common.IsClient = 0, isClient
-			conn.setRemoteEpoch(0)
-			helloType := handshake.TypeClientHello
-			if isClient {
-				helloType = handshake.TypeServerHello
-			}
-			pushEpochTestHandshake(t, conn, handshake.Header{Type: helloType}, 0)
-			pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeFinished, MessageSequence: 1}, 0)
-			pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeCertificate, MessageSequence: 2, Length: 2, FragmentLength: 1}, 0)
-			mark, ok := conn.replayMarker(0, 1000000, recordlayer.MaxSequenceNumber)
-			require.True(t, ok)
-			mark()
-			conn.handshakeCache.Push(nil, 0, 1, helloType, isClient)
-			oldBuffer := conn.fragmentBuffer
-			conn.setNegotiatedVersion([]protocol.Version{version}, version)
-			mark, ok = conn.replayMarker(0, 1, recordlayer.MaxSequenceNumber)
-			require.True(t, ok, "speculative records must not poison the negotiated replay window")
-			mark()
-			_, ok = conn.replayMarker(0, 1, recordlayer.MaxSequenceNumber)
-			require.False(t, ok, "replay protection must apply after version selection")
-			_, ok = conn.handshakeCache.PullExact(0, !isClient)
-			require.True(t, ok, "preserve the negotiating hello")
-			_, ok = conn.handshakeCache.PullExact(1, isClient)
-			require.True(t, ok, "preserve the local transcript")
-			_, ok = conn.handshakeCache.PullExact(1, !isClient)
-			require.Equal(t, version == protocol.Version1_2, ok)
-			if version == protocol.Version1_2 {
-				require.Same(t, oldBuffer, conn.fragmentBuffer)
-
-				continue
-			}
-			for _, sequence := range []uint16{1, 2} {
-				pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeFinished, MessageSequence: sequence}, 2)
-				item, cached := conn.handshakeCache.PullExact(sequence, !isClient)
-				require.True(t, cached, "discard speculative messages and partial fragments")
-				assert.Equal(t, uint64(2), item.Epoch)
-			}
-		}
-	}
-}
-
 func TestEmptyHandshakeRecordIsIgnored(t *testing.T) {
 	conn, _ := newTestConnWithReadProtection(t)
 	for _, epoch := range []uint64{0, 2, 3} {
@@ -2962,63 +2463,15 @@ func TestEmptyHandshakeRecordIsIgnored(t *testing.T) {
 	}
 }
 
-func TestDTLS12DiscardsACK(t *testing.T) {
-	for _, payload := range [][]byte{{0, 0}, {0}} {
-		t.Run(fmt.Sprintf("%x", payload), func(t *testing.T) {
-			conn, _ := newTestConnWithReadProtection(t)
-			common := &dtlsstate.Common{LocalVersion: protocol.Version1_2}
-			conn.state = &dtlsstate.State12{Common: common}
-			raw, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
-				ContentType: protocol.ContentTypeACK, Version: protocol.Version1_2, SequenceNumber: 1000000,
-			}, payload)
-			require.NoError(t, err)
-			outcome, err := conn.handleIncomingPacket(t.Context(), raw, nil, nil, false)
-			require.NoError(t, err)
-			require.Equal(t, packetOutcome{}, outcome)
-			if detector := common.ReplayDetector[0]; detector != nil {
-				_, acceptable := detector.Check(0)
-				require.True(t, acceptable, "ACKs must not consume replay sequence numbers")
-			}
-		})
-	}
-}
-
-func TestDeferChangeCipherSpecUntilVersionSelection(t *testing.T) {
-	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
-		t.Run(fmt.Sprintf("%04x", version), func(t *testing.T) {
-			conn, _ := newTestConnWithReadProtection(t)
-			common := dtlsstate.CommonState(conn.state)
-			common.LocalVersion = 0
-			conn.setRemoteEpoch(0)
-			raw, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
-				ContentType: protocol.ContentTypeChangeCipherSpec, Version: protocol.Version1_2,
-			}, []byte{2})
-			require.NoError(t, err)
-			outcome, err := conn.handleIncomingPacket(t.Context(), raw, nil, &readBufferLease{conn: conn}, false)
-			require.NoError(t, err)
-			require.Equal(t, packetOutcome{}, outcome)
-			require.Len(t, conn.encryptedPackets, 1)
-			conn.setNegotiatedVersion([]protocol.Version{version}, version)
-			_, err = conn.handleIncomingPacket(t.Context(), conn.encryptedPackets[0].data, nil, nil, false)
-			if version == protocol.Version1_2 {
-				require.ErrorIs(t, err, dtlserrors.ErrInvalidCipherSpec)
-			} else {
-				require.NoError(t, err)
-			}
-			require.Zero(t, common.RemoteEpoch())
-		})
-	}
-}
-
 func TestDTLS13ClientCertificateRejectionAlertsPeer(t *testing.T) {
 	serverCertificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	clientCertificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	a, b := packetPipe()
-	client, err := Client(a, a.RemoteAddr(), WithCertificates(clientCertificate), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3))
+	client, err := Client(a, a.RemoteAddr(), WithCertificates(clientCertificate), WithInsecureSkipVerify(true))
 	require.NoError(t, err)
-	server, err := Server(b, b.RemoteAddr(), WithCertificates(serverCertificate), WithClientAuth(VerifyClientCertIfGiven), WithMinVersion(protocol.Version1_3))
+	server, err := Server(b, b.RemoteAddr(), WithCertificates(serverCertificate), WithClientAuth(VerifyClientCertIfGiven))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close(); _ = server.Close(); _ = a.Close(); _ = b.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -3047,10 +2500,10 @@ func TestDTLS13ALPNMismatchAlertsPeer(t *testing.T) {
 	require.NoError(t, err)
 	a, b := packetPipe()
 	client, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true),
-		WithMinVersion(protocol.Version1_3), WithSupportedProtocols("http/1.1"))
+		WithSupportedProtocols("http/1.1"))
 	require.NoError(t, err)
 	server, err := Server(b, b.RemoteAddr(), WithCertificates(certificate),
-		WithMinVersion(protocol.Version1_3), WithSupportedProtocols("http/3"))
+		WithSupportedProtocols("http/3"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close(); _ = server.Close(); _ = a.Close(); _ = b.Close() })
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)

@@ -66,15 +66,11 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 					ClientCID: bytes.Clone(test.client), ServerCID: bytes.Clone(test.server),
 				}
 			}
-			state12, state13 := NewState12(test.isClient), NewState13(test.isClient)
-			state12.SetLocalConnectionID([]byte{0xff})
-			state12.LocalCIDOffered, state12.RemoteCIDOffered = true, true
-			state12.RemoteConnectionID = []byte{0xff}
+			state13 := NewState13(test.isClient)
 			state13.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte{0xff}, ServerCID: []byte{0xff}})
 
-			state12.CommitNegotiatedExtensions(decision)
 			state13.CommitNegotiatedExtensions(decision)
-			assertConnectionIDs(t, state12.Common, local, remote, test.negotiated)
+			assertConnectionIDs(t, state13.Common, local, remote, test.negotiated)
 			assertConnectionIDs13(t, &state13, local, remote, test.negotiated)
 
 			if decision != nil {
@@ -85,7 +81,7 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 				if len(decision.ServerCID) > 0 {
 					decision.ServerCID[0] = 0xff
 				}
-				assertConnectionIDs(t, state12.Common, local, remote, true)
+				assertConnectionIDs(t, state13.Common, local, remote, true)
 				assertConnectionIDs13(t, &state13, local, remote, true)
 				if len(local) > 0 {
 					state13.LocalConnectionID()[0] = 0xee
@@ -107,7 +103,7 @@ func TestRecordLocalClientHelloTracksCIDPresence(t *testing.T) {
 			&handshake.MessageClientHello{Extensions: extensions}, nil,
 		)
 		require.NoError(t, err)
-		state := NewState12(true)
+		state := NewState13(true)
 		require.NoError(t, state.RecordLocalClientHello(snapshot))
 		assert.Equal(t, len(extensions) > 0, state.pendingLocalConnectionID.Load() != nil)
 	}

@@ -6,24 +6,20 @@ package state
 import (
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/protocol"
 )
 
-// Active is a concrete DTLS version state that shares common connection fields.
+// Active is the connection state that shares common connection fields.
 type Active interface {
 	CommonFields() *Common
-	ShouldWrapConnectionID() bool
 }
 
-// NewActive creates a DTLS 1.2 active state with initialized common fields.
+// NewActive creates a DTLS 1.3 active state with initialized common fields.
 func NewActive(isClient bool) Active {
-	return &State12{
-		Common: &Common{
-			IsClient: isClient,
-		},
-	}
+	return Activate13(&State13{Common: &Common{IsClient: isClient, LocalVersion: protocol.Version1_3}})
 }
 
-// CommonState returns the common state shared by an active DTLS version state.
+// CommonState returns the common state shared by an active state.
 func CommonState(active Active) *Common {
 	if active == nil {
 		return &Common{}
@@ -33,67 +29,30 @@ func CommonState(active Active) *Common {
 	}
 
 	common := &Common{}
-	switch state := active.(type) {
-	case *State12:
-		state.Common = common
-	case *State13:
+	if state, ok := active.(*State13); ok {
 		state.Common = common
 	}
 
 	return common
 }
 
-// Activate12 returns a DTLS 1.2 active state, preserving common fields and
-// handshake sequence counters.
-func Activate12(active Active) *State12 {
-	common := CommonState(active)
-	if state, ok := active.(*State12); ok {
-		state.Common = common
-
-		return state
-	}
-
-	state := &State12{Common: common}
-	if state13, ok := active.(*State13); ok {
-		state.HandshakeSendSequence = state13.HandshakeSendSequence
-		state.HandshakeRecvSequence = state13.HandshakeRecvSequence
-	}
-
-	return state
-}
-
-// Activate13 returns a DTLS 1.3 active state, preserving common fields and
-// handshake sequence counters.
+// Activate13 returns a DTLS 1.3 active state with its lazily allocated fields
+// initialized.
 func Activate13(active Active) *State13 {
 	common := CommonState(active)
-	if state, ok := active.(*State13); ok {
-		state.Common = common
-		if state.TrafficKeys == nil {
-			state.TrafficKeys = &TrafficKeyState{}
-		}
-		if state.LocalKeypairs == nil {
-			state.LocalKeypairs = make(map[elliptic.Curve]*elliptic.Keypair)
-		}
-
-		return state
+	state, ok := active.(*State13)
+	if !ok {
+		state = &State13{}
 	}
-
-	state := &State13{Common: common, LocalKeypairs: make(map[elliptic.Curve]*elliptic.Keypair), TrafficKeys: &TrafficKeyState{}}
-	if state12, ok := active.(*State12); ok {
-		state.HandshakeSendSequence = state12.HandshakeSendSequence
-		state.HandshakeRecvSequence = state12.HandshakeRecvSequence
+	state.Common = common
+	if state.TrafficKeys == nil {
+		state.TrafficKeys = &TrafficKeyState{}
+	}
+	if state.LocalKeypairs == nil {
+		state.LocalKeypairs = make(map[elliptic.Curve]*elliptic.Keypair)
 	}
 
 	return state
-}
-
-func As12(active Active) (*State12, error) {
-	state, ok := active.(*State12)
-	if !ok {
-		return nil, dtlserrors.ErrInvalidProtocolVersionState
-	}
-
-	return state, nil
 }
 
 func As13(active Active) (*State13, error) {
@@ -106,31 +65,22 @@ func As13(active Active) (*State13, error) {
 }
 
 func HandshakeRecvSequence(active Active) int {
-	switch state := active.(type) {
-	case *State13:
+	if state, ok := active.(*State13); ok {
 		return state.HandshakeRecvSequence
-	case *State12:
-		return state.HandshakeRecvSequence
-	default:
-		return 0
 	}
+
+	return 0
 }
 
 func NextHandshakeSendSequence(active Active) uint16 {
-	switch state := active.(type) {
-	case *State13:
-		state.sequenceMu.Lock()
-		defer state.sequenceMu.Unlock()
-		seq := state.HandshakeSendSequence
-		state.HandshakeSendSequence++
-
-		return uint16(seq) //nolint:gosec // G115
-	case *State12:
-		seq := state.HandshakeSendSequence
-		state.HandshakeSendSequence++
-
-		return uint16(seq) //nolint:gosec // G115
-	default:
+	state, ok := active.(*State13)
+	if !ok {
 		return 0
 	}
+	state.sequenceMu.Lock()
+	defer state.sequenceMu.Unlock()
+	seq := state.HandshakeSendSequence
+	state.HandshakeSendSequence++
+
+	return uint16(seq) //nolint:gosec // G115
 }

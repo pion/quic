@@ -13,13 +13,10 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
-	"github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
-	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -328,27 +325,6 @@ func (t *Transcript) Bytes() []byte {
 	return bytes.Clone(t.transcript)
 }
 
-// seedTranscriptFromInitialFlights imports the dual-stack ClientHello generated
-// before the DTLS 1.3 FSM exists.
-func seedTranscriptFromInitialFlights(state *dtlsstate.State13, transcript *Transcript, flights []*dtlsflight.Outbound, retransmit bool) error {
-	if !state.IsClient {
-		return nil
-	}
-
-	appended, err := AppendClientHelloInitialFlights(transcript, flights)
-	if err != nil {
-		return err
-	}
-	if retransmit && !appended {
-		return dtlserrors.ErrHandshakeTranscriptMissingClientHello
-	}
-	if appended && state.ECH != nil && transcript.echInner == nil && !transcript.echInnerSelected {
-		return transcript.initECHInner(state.ECH.Inner, transcript.order[0].ID.Seq)
-	}
-
-	return nil
-}
-
 func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflight.Outbound) (bool, error) {
 	if transcript == nil {
 		return false, dtlserrors.ErrHandshakeTranscriptMissingClientHello
@@ -370,20 +346,6 @@ func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflig
 	}
 
 	return appended, nil
-}
-
-// ValidateClientHelloInitialFlights verifies that the dual-stack initial flight
-// contains a canonical ClientHello before it is written.
-func ValidateClientHelloInitialFlights(flights []*dtlsflight.Outbound) error {
-	appended, err := AppendClientHelloInitialFlights(NewTranscript(), flights)
-	if err != nil {
-		return err
-	}
-	if !appended {
-		return dtlserrors.ErrHandshakeTranscriptMissingClientHello
-	}
-
-	return nil
 }
 
 func canonicalClientHelloInitialFlight(p *dtlsflight.Outbound) (uint16, []byte, bool, error) {
@@ -481,15 +443,7 @@ func (t *Transcript) AppendVerifiedInbound(
 		return err
 	}
 
-	var keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
-	if cipherSuite != nil {
-		keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
-	}
-
-	h := &handshake.Handshake{
-		KeyExchangeAlgorithm: keyExchangeAlgorithm,
-		Version:              protocol.Version1_3,
-	}
+	h := &handshake.Handshake{}
 	if err := h.Unmarshal(raw); err != nil {
 		return err
 	}

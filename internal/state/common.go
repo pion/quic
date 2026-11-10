@@ -59,7 +59,7 @@ type Common struct {
 	// extension.
 	RemoteCIDOffered bool
 	// RRCNegotiated reports whether both peers exchanged the RFC 9853
-	// extension. The negotiation is shared by DTLS 1.2 and DTLS 1.3.
+	// extension.
 	RRCNegotiated bool
 	// pendingLocalConnectionID is the uncommitted CID offered by this client.
 	pendingLocalConnectionID atomic.Pointer[[]byte]
@@ -269,19 +269,6 @@ func (s *Common) ConnectionIDPending() bool {
 	return s.IsClient && s.pendingLocalConnectionID.Load() != nil
 }
 
-// State is retained as the DTLS 1.2 state alias for callers that still only
-// support DTLS 1.2 resumption/state serialization.
-type State = State12
-
-// CommonFields returns the embedded common state.
-func (s *State12) CommonFields() *Common {
-	if s == nil {
-		return nil
-	}
-
-	return s.Common
-}
-
 // CommonFields returns the embedded common state.
 func (s *State13) CommonFields() *Common {
 	if s == nil {
@@ -289,18 +276,6 @@ func (s *State13) CommonFields() *Common {
 	}
 
 	return s.Common
-}
-
-// NewState12 creates DTLS 1.2 state with initialized common fields.
-func NewState12(isClient bool) State12 {
-	common := &Common{
-		IsClient:     isClient,
-		LocalVersion: protocol.Version1_2,
-	}
-
-	return State12{
-		Common: common,
-	}
 }
 
 // NewState13 creates DTLS 1.3 state with initialized common fields.

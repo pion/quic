@@ -45,7 +45,6 @@ func main() {
 
 	listener, err := dtls.ListenAddr("udp", addr,
 		dtls.WithCertificates(certificate),
-		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 		dtls.WithClientAuth(dtls.RequireAndVerifyClientCert),
 		dtls.WithClientCAs(certPool),
 		// This function will be called on each connection attempt.

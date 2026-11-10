@@ -16,7 +16,6 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
@@ -27,9 +26,6 @@ func flight1Generate(
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
-	if err := cfg.ValidateECHVersions(); err != nil {
-		return nil, nil, err
-	}
 	state.ResetConnectionIDs()
 	state.SetSRTPProtectionProfile(0)
 	state.LocalClientHelloSnapshots.Reset()
@@ -80,7 +76,7 @@ func generateInitialClientHello(conn dtlsflight.Conn, flightCtx *handshakeContex
 		Shares: entries,
 	})
 
-	extensions = append(extensions, &extension13.OfferedVersions{Versions: dtlsconfig.SupportedVersionsRange(cfg.MinVersion, cfg.MaxVersion)})
+	extensions = append(extensions, &extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}})
 
 	if len(cfg.LocalCertSignatureSchemes) > 0 {
 		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes)})
@@ -156,15 +152,7 @@ func initialClientHelloExtensions(cfg *dtlsconfig.HandshakeConfig) []extension.V
 		extensions = append(extensions, &extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)})
 	}
 
-	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
-		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
-	}
-
-	extensions = append(extensions, &extension12.RenegotiationInfo{
-		RenegotiatedConnection: 0,
-	})
-
-	extensions = append(extensions, &extension.SupportedGroups{Groups: cfg.EllipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}})
+	extensions = append(extensions, &extension.SupportedGroups{Groups: cfg.EllipticCurves})
 
 	if len(cfg.SupportedProtocols) > 0 {
 		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
@@ -186,7 +174,7 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 		return flight3Parse(ctx, conn, flightCtx)
 	}
 
-	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},
 	)
 	if pull.Err != nil {

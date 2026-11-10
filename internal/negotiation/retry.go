@@ -113,32 +113,6 @@ func ValidateClientHelloRetry(
 	return validateRetryClientHello(initial, retry, request)
 }
 
-// ValidateHelloVerifyRequestResponse validates the RFC 6347 fields that must remain
-// stable across HelloVerifyRequest. DTLS 1.2 does
-// not require byte-for-byte extension equality, but the existing CID and SRTP
-// retry validation still apply.
-func ValidateHelloVerifyRequestResponse(initial, retry ClientHelloSnapshot, cookie []byte) error {
-	if !initial.Valid() || !retry.Valid() {
-		return negotiationError(dtlserrors.ErrInvalidClientHello, errHelloVerifyMissingSnapshot, alert.IllegalParameter)
-	}
-	firstBeforeCookie, firstAfterCookie, _ := helloVerifyClientHelloParts(initial)
-	secondBeforeCookie, secondAfterCookie, secondCookie := helloVerifyClientHelloParts(retry)
-	if !bytes.Equal(firstBeforeCookie, secondBeforeCookie) || !bytes.Equal(firstAfterCookie, secondAfterCookie) {
-		return negotiationError(dtlserrors.ErrInvalidClientHello, errHelloVerifyChangedFields, alert.IllegalParameter)
-	}
-	if !bytes.Equal(secondCookie, cookie) {
-		return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("ClientHello did not echo the latest cookie: %w", dtlserrors.ErrCookieMismatch), alert.IllegalParameter)
-	}
-	if err := validateHelloVerifyExtension(initial, retry, extension.TypeConnectionID); err != nil {
-		return err
-	}
-	if err := ValidateSRTPRetry(initial, retry); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // ValidateServerHelloAfterRetry binds the final ServerHello to the cipher
 // suite and, when using (EC)DHE, selected group from the HelloRetryRequest.
 func ValidateServerHelloAfterRetry(request RetryRequest, serverHello *handshake.MessageServerHello) error {
@@ -393,25 +367,6 @@ func clientKeyShares(snapshot ClientHelloSnapshot) ([]extension13.KeyShareEntry,
 	}
 
 	return keyShare.Shares, nil
-}
-
-func helloVerifyClientHelloParts(snapshot ClientHelloSnapshot) (beforeCookie, afterCookie, cookie []byte) {
-	cookieOffset := 2 + handshake.RandomLength
-	cookieOffset += 1 + int(snapshot.body[cookieOffset])
-	cookieStart := cookieOffset + 1
-	cookieEnd := cookieStart + int(snapshot.body[cookieOffset])
-
-	return snapshot.body[:cookieOffset], snapshot.body[cookieEnd:snapshot.extensionOffset], snapshot.body[cookieStart:cookieEnd]
-}
-
-func validateHelloVerifyExtension(initial, retry ClientHelloSnapshot, typ extension.Type) error {
-	first, firstPresent := initial.Extension(typ)
-	second, secondPresent := retry.Extension(typ)
-	if firstPresent == secondPresent && bytes.Equal(first.Data, second.Data) {
-		return nil
-	}
-
-	return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("%w: %d", errHelloVerifyExtensionChanged, typ), alert.IllegalParameter)
 }
 
 func retryKeyShare(share *extension13.KeyShareEntry) *extension13.ClientKeyShare {

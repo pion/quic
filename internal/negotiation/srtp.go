@@ -97,17 +97,6 @@ func validateOfferedSRTPSelection(offer extension.SRTPOffer, responses []extensi
 	return SRTPDecision{ProtectionProfile: selection.ProtectionProfile, MasterKeyIdentifier: bytes.Clone(selection.MasterKeyIdentifier), PeerMasterKeyIdentifier: bytes.Clone(selection.MasterKeyIdentifier)}, nil
 }
 
-// ValidateSRTPRetry requires CH2 to preserve CH1's exact use_srtp payload.
-func ValidateSRTPRetry(initial, retry ClientHelloSnapshot) error {
-	first, firstPresent := initial.Extension(extension.TypeUseSRTP)
-	second, secondPresent := retry.Extension(extension.TypeUseSRTP)
-	if firstPresent == secondPresent && bytes.Equal(first.Data, second.Data) {
-		return nil
-	}
-
-	return srtpError(dtlserrors.ErrInvalidClientHello, alert.IllegalParameter)
-}
-
 func readSRTPOffer(snapshot ClientHelloSnapshot) (extension.SRTPOffer, bool, error) {
 	raw, ok := snapshot.Extension(extension.TypeUseSRTP)
 	if !ok {

@@ -16,7 +16,6 @@ import (
 	"github.com/pion/dtls/v4/internal/crypto/hash"
 	"github.com/pion/dtls/v4/internal/crypto/signature"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -156,7 +155,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 	}
 }
 
-func TestSelectSignatureScheme_VersionAware(t *testing.T) {
+func TestSelectSignatureScheme(t *testing.T) {
 	// Generate test keys
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -168,39 +167,32 @@ func TestSelectSignatureScheme_VersionAware(t *testing.T) {
 		name           string
 		schemes        []Algorithm
 		privateKey     crypto.PrivateKey
-		version        protocol.Version
 		expectedSigAlg signature.Algorithm
 		expectedError  error
 	}{
-		{name: "DTLS 1.3 rejects mismatched ECDSA curves", schemes: []Algorithm{{hash.SHA384, signature.ECDSA}}, privateKey: ecdsaKey, version: protocol.Version1_3, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes},
-		{name: "DTLS 1.2 preserves flexible ECDSA hashes", schemes: []Algorithm{{hash.SHA384, signature.ECDSA}}, privateKey: ecdsaKey, version: protocol.Version1_2, expectedSigAlg: signature.ECDSA},
-		{name: "DTLS 1.3 rejects SHA-1", schemes: []Algorithm{{hash.SHA1, signature.ECDSA}}, privateKey: ecdsaKey, version: protocol.Version1_3, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes},
-		{name: "DTLS 1.3 rejects SHA-224", schemes: []Algorithm{{hash.SHA224, signature.ECDSA}}, privateKey: ecdsaKey, version: protocol.Version1_3, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes},
-		{name: "DTLS 1.3 with RSA key skips PKCS#1 v1.5 and selects PSS", schemes: []Algorithm{{hash.SHA256, signature.RSA}, {hash.SHA256, signature.RSA_PSS_RSAE_SHA256}}, privateKey: rsaKey, version: protocol.Version1_3, expectedSigAlg: signature.RSA_PSS_RSAE_SHA256, expectedError: nil},
-		{name: "DTLS 1.2 with RSA key skips PSS, selects PKCS#1 v1.5", schemes: []Algorithm{{hash.SHA256, signature.RSA_PSS_RSAE_SHA256}, {hash.SHA256, signature.RSA}}, privateKey: rsaKey, version: protocol.Version1_2, expectedSigAlg: signature.RSA, expectedError: nil},
-		{name: "DTLS 1.2 with RSA key and only PSS schemes fails", schemes: []Algorithm{{hash.SHA256, signature.RSA_PSS_RSAE_SHA256}, {hash.SHA384, signature.RSA_PSS_RSAE_SHA384}}, privateKey: rsaKey, version: protocol.Version1_2, expectedSigAlg: 0, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes},
-		{name: "ECDSA works on both DTLS 1.2 and 1.3", schemes: []Algorithm{{hash.SHA256, signature.ECDSA}}, privateKey: ecdsaKey, version: protocol.Version1_2, expectedSigAlg: signature.ECDSA, expectedError: nil},
+		{name: "rejects mismatched ECDSA curves", schemes: []Algorithm{{hash.SHA384, signature.ECDSA}}, privateKey: ecdsaKey, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes},
+		{name: "rejects SHA-1", schemes: []Algorithm{{hash.SHA1, signature.ECDSA}}, privateKey: ecdsaKey, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes},
+		{name: "rejects SHA-224", schemes: []Algorithm{{hash.SHA224, signature.ECDSA}}, privateKey: ecdsaKey, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes},
+		{name: "with RSA key skips PKCS#1 v1.5 and selects PSS", schemes: []Algorithm{{hash.SHA256, signature.RSA}, {hash.SHA256, signature.RSA_PSS_RSAE_SHA256}}, privateKey: rsaKey, expectedSigAlg: signature.RSA_PSS_RSAE_SHA256, expectedError: nil},
+		{name: "ECDSA P-256 selects SHA-256", schemes: []Algorithm{{hash.SHA256, signature.ECDSA}}, privateKey: ecdsaKey, expectedSigAlg: signature.ECDSA, expectedError: nil},
 		{
-			name:           "DTLS 1.3 with RSA key skips RSA_PSS_PSS, selects RSA_PSS_RSAE",
+			name:           "with RSA key skips RSA_PSS_PSS, selects RSA_PSS_RSAE",
 			schemes:        []Algorithm{{hash.SHA256, signature.RSA_PSS_PSS_SHA256}, {hash.SHA256, signature.RSA_PSS_RSAE_SHA256}, {hash.SHA256, signature.RSA}},
 			privateKey:     rsaKey,
-			version:        protocol.Version1_3,
 			expectedSigAlg: signature.RSA_PSS_RSAE_SHA256,
 			expectedError:  nil,
 		},
 		{
-			name:           "DTLS 1.3 with RSA key rejects PKCS#1 v1.5 fallback",
+			name:           "with RSA key rejects PKCS#1 v1.5 fallback",
 			schemes:        []Algorithm{{hash.SHA256, signature.RSA_PSS_PSS_SHA256}, {hash.SHA384, signature.RSA_PSS_PSS_SHA384}, {hash.SHA256, signature.RSA}},
 			privateKey:     rsaKey,
-			version:        protocol.Version1_3,
 			expectedSigAlg: 0,
 			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
 		{
-			name:           "DTLS 1.3 with RSA key and only RSA_PSS_PSS schemes fails if no fallback",
+			name:           "with RSA key and only RSA_PSS_PSS schemes fails if no fallback",
 			schemes:        []Algorithm{{hash.SHA256, signature.RSA_PSS_PSS_SHA256}, {hash.SHA384, signature.RSA_PSS_PSS_SHA384}, {hash.SHA512, signature.RSA_PSS_PSS_SHA512}},
 			privateKey:     rsaKey,
-			version:        protocol.Version1_3,
 			expectedSigAlg: 0,
 			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
@@ -208,7 +200,7 @@ func TestSelectSignatureScheme_VersionAware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := SelectSignatureScheme(tt.schemes, tt.privateKey, tt.version)
+			result, err := SelectSignatureScheme(tt.schemes, tt.privateKey)
 			if tt.expectedError != nil {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.expectedError)

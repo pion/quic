@@ -22,7 +22,7 @@ func flight2Parse(
 	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
 	pull := flightCtx.cache.FullPullMapItems(
-		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
+		flightCtx.state.HandshakeRecvSequence,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: true, Optional: false},
 	)
 	if pull.Err != nil {

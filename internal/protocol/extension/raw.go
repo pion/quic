@@ -17,12 +17,10 @@ type Type uint16
 const (
 	TypeServerName              Type = 0
 	TypeSupportedGroups         Type = 10
-	TypeSupportedPointFormats   Type = 11
 	TypeSignatureAlgorithms     Type = 13
 	TypeUseSRTP                 Type = 14
 	TypeALPN                    Type = 16
 	TypePadding                 Type = 21
-	TypeExtendedMasterSecret    Type = 23
 	TypePreSharedKey            Type = 41
 	TypeEarlyData               Type = 42
 	TypeSupportedVersions       Type = 43
@@ -37,7 +35,6 @@ const (
 	TypeReturnRoutabilityCheck  Type = 61
 	TypeECHOuterExtensions      Type = 64768
 	TypeEncryptedClientHello    Type = 65037
-	TypeRenegotiationInfo       Type = 65281
 )
 
 // Value is an extension payload that can be framed in an extension list.

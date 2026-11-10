@@ -274,8 +274,8 @@ func (c *Conn) registerLocalCID() error {
 	return nil
 }
 
-// acceptsInboundCID uses pre-negotiation DTLS 1.2 CID CID,
-// or DTLS 1.3 CID set.
+// acceptsInboundCID checks the negotiated receive CID set, or the offered
+// CID before negotiation completes.
 func (c *Conn) acceptsInboundCID(cid []byte) bool {
 	if state, ok := c.state.(*dtlsstate.State13); ok && state.CID.Negotiated {
 		return state.CID.Receive.IDs.Contains(cid)
@@ -413,7 +413,7 @@ func (c *Conn) removeLocalCIDs(cids [][]byte) {
 func (c *Conn) pendingCIDNegotiation() bool {
 	common := dtlsstate.CommonState(c.state)
 
-	return common.ConnectionIDPending() && len(common.LocalConnectionIDForInboundRecords()) > 0 && common.LocalVersion != protocol.Version1_2
+	return common.ConnectionIDPending() && len(common.LocalConnectionIDForInboundRecords()) > 0
 }
 
 // updateRemoteAddr is called only after the migration policy accepts a path.

@@ -90,32 +90,26 @@ type fsm13 struct {
 	received      recvHandshakeLease // keeps the reader paused across a prepare/send transition
 }
 
-func NewFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialFlights []*dtlsflight.Outbound, establishment *Establishment) (FSM, error) {
-	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialFlights, nil, establishment)
+func NewFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, establishment *Establishment) (FSM, error) {
+	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, nil, establishment)
 }
 
-func newFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialFlights []*dtlsflight.Outbound, initialTranscript *Transcript) (*fsm13, error) {
-	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialFlights, initialTranscript, NewEstablishment())
+func newFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialTranscript *Transcript) (*fsm13, error) {
+	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialTranscript, NewEstablishment())
 }
 
-func newFSM13WithEstablishment(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialFlights []*dtlsflight.Outbound, initialTranscript *Transcript, establishment *Establishment) (*fsm13, error) {
+func newFSM13WithEstablishment(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialTranscript *Transcript, establishment *Establishment) (*fsm13, error) {
 	if initialTranscript == nil {
 		initialTranscript = NewTranscript()
 	}
 
 	fsm := &fsm13{
 		currentFlight:      initialFlight,
-		flights:            initialFlights,
-		retransmit:         initialFlights != nil,
 		handshakeContext:   handshakeContext{state: state, cache: cache, cfg: cfg, transcript: initialTranscript},
 		retransmitInterval: cfg.InitialRetransmitInterval,
 		closed:             make(chan struct{}),
 		establishment:      establishment,
 		postHandshake:      newPostHandshake(handshakeContext{state: state, cache: cache, cfg: cfg, transcript: initialTranscript}),
-	}
-	fsm.prepareFlightACKTracking(fsm.flights, fsm.retransmit)
-	if err := fsm.seedInitialFlights(fsm.flights, fsm.retransmit); err != nil {
-		return nil, err
 	}
 
 	return fsm, nil

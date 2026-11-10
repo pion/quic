@@ -175,7 +175,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error {
 
 func (m *MessageServerHello) unmarshalExtensions(data []byte, currOffset int) error {
 	if len(data) <= currOffset {
-		context := serverHelloExtensionContext(m.Random, nil)
+		context := serverHelloExtensionContext(m.Random)
 		extensions, err := handshakewire.DecodeRawExtensions(nil, context)
 		if err != nil {
 			return err
@@ -187,15 +187,11 @@ func (m *MessageServerHello) unmarshalExtensions(data []byte, currOffset int) er
 
 	rawExtensions, err := extension.ParseList(data[currOffset:])
 	if err != nil {
-		context := handshakewire.ContextServerHello12
-		randomBytes := m.Random.MarshalFixed()
-		if bytes.Equal(randomBytes[:], HelloRetryRequestRandom()) {
-			context = handshakewire.ContextHelloRetryRequest
-		}
+		context := serverHelloExtensionContext(m.Random)
 
 		return fmt.Errorf("extensions in %s: %w: %w", context, err, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 	}
-	context := serverHelloExtensionContext(m.Random, rawExtensions)
+	context := serverHelloExtensionContext(m.Random)
 	extensions, err := handshakewire.DecodeRawExtensions(rawExtensions, context)
 	if err != nil {
 		return err

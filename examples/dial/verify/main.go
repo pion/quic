@@ -39,7 +39,6 @@ func main() {
 	defer cancel()
 	dtlsConn, err := dtls.Dial("udp", addr,
 		dtls.WithCertificates(certificate),
-		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 		dtls.WithRootCAs(certPool),
 	)
 	util.Check(err)
