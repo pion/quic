@@ -606,7 +606,7 @@ func (p *postHandshake) startNewConnectionID(ctx context.Context, conn Conn, com
 
 // newReliableFlight consumes a sequence after the caller validates the message and sequence limit.
 func (p *postHandshake) newReliableFlight(category postHandshakeCategory, message handshake.Message, length int) *reliablePostHandshakeFlight {
-	sequence := dtlsstate.NextHandshakeSendSequence(p.state)
+	sequence := p.state.NextHandshakeSendSequence()
 	packet := &dtlsflight.Outbound{
 		Epoch: p.state.LocalEpoch(), Protection: dtlsflight.ProtectionCiphertext, TrackACK: true,
 		Content: &handshake.Handshake{

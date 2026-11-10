@@ -316,3 +316,14 @@ const (
 	EarlyDataAccepted
 	EarlyDataRejected
 )
+
+// NextHandshakeSendSequence returns the next handshake message_seq and
+// advances the counter.
+func (s *State13) NextHandshakeSendSequence() uint16 {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+	seq := s.HandshakeSendSequence
+	s.HandshakeSendSequence++
+
+	return uint16(seq) //nolint:gosec // G115
+}

@@ -19,7 +19,6 @@ import (
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
 	"github.com/pion/dtls/v4/internal/protocol/recordlayer"
-	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -112,7 +111,7 @@ func (c *finishedACKTestConn) WriteTo(data []byte, addr net.Addr) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		protection := testRecordProtection13{TrafficProtection: generation.Protection, capabilities: dtlsstate.CommonState(c.server.state).CipherSuite.Capabilities()}
+		protection := testRecordProtection13{TrafficProtection: generation.Protection, capabilities: c.server.state.Common.CipherSuite.Capabilities()}
 		header := recordlayer.CiphertextConfig{EpochLow: 3, SequenceNumber: uint16(record.SequenceNumber() & 0xffff), TwoByteSequence: record.SequenceBytes() == 2, LengthPresent: record.LengthPresent()}
 		opened, err := protection.OpenRecord(header, c.sequence, record.Payload())
 		c.sequence++

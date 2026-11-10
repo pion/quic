@@ -68,7 +68,7 @@ func (c returnRoutabilityConn) WriteRRC(ctx context.Context, addr net.Addr, mess
 	defer c.conn.writeLock.Unlock()
 
 	c.conn.lock.Lock()
-	common := dtlsstate.CommonState(c.conn.state)
+	common := c.conn.state.Common
 	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || !common.RRCNegotiated {
 		c.conn.lock.Unlock()
 
@@ -101,7 +101,7 @@ func (c returnRoutabilityConn) WriteRRC(ctx context.Context, addr net.Addr, mess
 }
 
 func (c returnRoutabilityConn) HandleRecord(ctx context.Context, message *protocol.ReturnRoutabilityCheck, prepared incomingPacketState, addr net.Addr) (bool, packetOutcome, error) {
-	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || prepared.number.Epoch == 0 || !dtlsstate.CommonState(c.conn.state).RRCNegotiated {
+	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || prepared.number.Epoch == 0 || !c.conn.state.Common.RRCNegotiated {
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 	prepared.markPacketAsValid()
@@ -253,7 +253,7 @@ func (c *Conn) registerLocalCID() error {
 	if c.packetConn == nil {
 		return nil
 	}
-	cid := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
+	cid := c.state.Common.LocalConnectionIDForInboundRecords()
 	var ids *dtlsstate.CIDReceiveSet
 	if state := c.state; state != nil {
 		ids = state.CID.Receive.IDs
@@ -280,7 +280,7 @@ func (c *Conn) acceptsInboundCID(cid []byte) bool {
 		return state.CID.Receive.IDs.Contains(cid)
 	}
 
-	return bytes.Equal(dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords(), cid)
+	return bytes.Equal(c.state.Common.LocalConnectionIDForInboundRecords(), cid)
 }
 
 // reserveLocalCIDs reserves CID before publishing acceptance.
@@ -410,7 +410,7 @@ func (c *Conn) removeLocalCIDs(cids [][]byte) {
 }
 
 func (c *Conn) pendingCIDNegotiation() bool {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 
 	return common.ConnectionIDPending() && len(common.LocalConnectionIDForInboundRecords()) > 0
 }
@@ -438,7 +438,7 @@ func (c *Conn) takePendingACKs() []protocol.RecordNumber {
 	records := c.pendingACKs
 	c.pendingACKs = nil
 	for number, sequence := range c.pendingCIDACKs {
-		if int(sequence) < dtlsstate.HandshakeRecvSequence(c.state) {
+		if int(sequence) < c.state.HandshakeRecvSequence {
 			records = append(records, number)
 			delete(c.pendingCIDACKs, number)
 		}
@@ -459,7 +459,7 @@ func (c *Conn) queueHandshakeACK(content []byte, number protocol.RecordNumber) {
 		}
 		content = content[handshake.HeaderLength+int(header.FragmentLength):]
 	}
-	if lastCIDSequence < dtlsstate.HandshakeRecvSequence(c.state) {
+	if lastCIDSequence < c.state.HandshakeRecvSequence {
 		c.pendingACKs = append(c.pendingACKs, number)
 
 		return
@@ -891,7 +891,7 @@ func (t *pathTransport) Close() error {
 }
 
 func (c returnRoutabilityConn) prepareRecord(message *protocol.ReturnRoutabilityCheck, addr net.Addr) ([]byte, error) {
-	packet := &dtlsflight.Outbound{Epoch: dtlsstate.CommonState(c.conn.state).LocalEpoch(), Content: message, Protection: dtlsflight.ProtectionCiphertext}
+	packet := &dtlsflight.Outbound{Epoch: c.conn.state.Common.LocalEpoch(), Content: message, Protection: dtlsflight.ProtectionCiphertext}
 	source, tagged := addr.(pathAddress)
 	if !tagged || source.path == source.path.transport.active {
 		return c.conn.prepareRecord(packet)

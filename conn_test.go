@@ -79,7 +79,8 @@ func TestMarshalRecordContentEnforcesPlaintextLimit(t *testing.T) {
 }
 
 func TestApplicationDataPacketOwnsPayload(t *testing.T) {
-	conn := &Conn{state: dtlsstate.NewActive(true)}
+	state := dtlsstate.NewState13(true)
+	conn := &Conn{state: &state}
 	payload := []byte("application data")
 	packet := conn.newApplicationDataPacket(payload)
 	payload[0] = 'X'
@@ -105,7 +106,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
-		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(0, recordlayer.MaxSequenceNumber+1)
+		ca.state.Common.SetLocalSequenceNumber(0, recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
 		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: make([]byte, 32), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}})
@@ -822,7 +823,7 @@ func TestOpenCiphertextRecordRejectsInvalidRecords(t *testing.T) {
 		{
 			name: "wrong sequence number",
 			mutate: func(conn *Conn, _ *sealedTestRecord) {
-				dtlsstate.CommonState(conn.state).UpdateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
+				conn.state.Common.UpdateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
 			},
 			wantErr: errRecordAuthentication,
 		},
@@ -875,7 +876,7 @@ func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
 	const sequenceNumber = uint64(0x1002a)
-	dtlsstate.CommonState(conn.state).UpdateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0x10005)
+	conn.state.Common.UpdateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0x10005)
 	expectedPlaintext := encryptedExtensionsHandshakeWithSequence(t, 0)
 	record := sealTestProtectedHandshakeRecordWithSequence(t, peerCipherSuite, expectedPlaintext, sequenceNumber)
 	rawPacket, err := record.Marshal()
@@ -1812,7 +1813,7 @@ func TestReplayMarkerUsesReceivedEpoch(t *testing.T) {
 	state := conn.state
 	require.NotNil(t, state)
 	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{Epoch: 4})
-	common := dtlsstate.CommonState(conn.state)
+	common := conn.state.Common
 	common.UpdateRemoteSequenceNumber(3, 10)
 	common.SetRemoteEpoch(4) // KeyUpdate installs keys before receiving epoch 4.
 	for _, tc := range []struct {
@@ -1851,7 +1852,7 @@ func TestHandleIncomingPacketControlRecordEpoch(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			conn, peerProtection := newTestConnWithReadProtection(t)
-			common := dtlsstate.CommonState(conn.state)
+			common := conn.state.Common
 			conn.setRemoteEpoch(testCase.remoteEpoch)
 			raw, err := marshalTestRecord(recordlayer.RecordConfig{Version: protocol.Version1_2}, testCase.content)
 			require.NoError(t, err)
@@ -2232,8 +2233,8 @@ func checkEarlyDataSRTP(t *testing.T, client, server *DetachedConn) {
 	if len(profiles) == 0 {
 		return
 	}
-	require.Equal(t, profiles[0], dtlsstate.CommonState(client.conn.state).SRTPProtectionProfile())
-	require.Equal(t, profiles[0], dtlsstate.CommonState(server.conn.state).SRTPProtectionProfile())
+	require.Equal(t, profiles[0], client.conn.state.Common.SRTPProtectionProfile())
+	require.Equal(t, profiles[0], server.conn.state.Common.SRTPProtectionProfile())
 	clientState, _ := client.conn.ConnectionState()
 	serverState, _ := server.conn.ConnectionState()
 	clientKeys, err := clientState.ExportKeyingMaterial("EXTRACTOR-dtls_srtp", nil, 60)
@@ -2266,8 +2267,8 @@ func earlyDataALPNOptions(scenario string, ticket *SessionTicket) (Option, Optio
 func checkEarlyDataALPN(t *testing.T, scenario string, client, server *DetachedConn) {
 	t.Helper()
 	expected := map[string]string{"alpn": earlyDataALPN, "alpn changed": "new"}[scenario]
-	require.Equal(t, expected, dtlsstate.CommonState(client.conn.state).NegotiatedProtocol)
-	require.Equal(t, expected, dtlsstate.CommonState(server.conn.state).NegotiatedProtocol)
+	require.Equal(t, expected, client.conn.state.Common.NegotiatedProtocol)
+	require.Equal(t, expected, server.conn.state.Common.NegotiatedProtocol)
 }
 
 type deadlineTestTransport struct {

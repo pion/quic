@@ -14,7 +14,6 @@ import (
 	"github.com/pion/dtls/v4/internal/crypto/selfsign"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/protocol"
-	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +36,7 @@ func TestStateRoundTripPreservesNegotiatedExtensions(t *testing.T) {
 	require.NoError(t, client.handshakeError)
 	require.NoError(t, server.handshakeError)
 	t.Cleanup(func() { _ = client.conn.Close(); _ = server.conn.Close() })
-	peerMKI := bytes.Clone(dtlsstate.CommonState(server.conn.state).RemoteSRTPMasterKeyIdentifier)
+	peerMKI := bytes.Clone(server.conn.state.Common.RemoteSRTPMasterKeyIdentifier)
 	require.Equal(t, []byte{1}, peerMKI)
 
 	state, err := server.conn.ExportState()
@@ -123,7 +122,7 @@ func TestResume(t *testing.T) {
 				require.NoError(t, server.conn.Close())
 				_, err = client.conn.Write([]byte("after export"))
 				require.ErrorIs(t, err, ErrConnClosed)
-				require.Equal(t, clientState.sequenceNumber, dtlsstate.CommonState(client.conn.state).NextLocalSequenceNumber(clientState.localEpoch))
+				require.Equal(t, clientState.sequenceNumber, client.conn.state.Common.NextLocalSequenceNumber(clientState.localEpoch))
 				_, err = client.conn.ExportState()
 				require.ErrorIs(t, err, dtlserrors.ErrInvalidExportedState)
 				exported, err := clientState.ExportKeyingMaterial("resume-test", nil, 32)

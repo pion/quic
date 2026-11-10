@@ -263,6 +263,7 @@ func createConn(nextConn net.PacketConn, rAddr net.Addr, config *dtlsConfig, isC
 }
 
 func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigValues, handshakeConfig *dtlsconfig.HandshakeConfig, isClient bool) *Conn {
+	state := dtlsstate.NewState13(isClient)
 	conn := &Conn{
 		rAddr:                   rAddr,
 		handshakeConfig:         handshakeConfig,
@@ -288,9 +289,9 @@ func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigVal
 
 		replayProtectionWindow: uint(configValues.replayProtectionWindow), //nolint:gosec // G115
 
-		state: dtlsstate.NewActive(isClient),
+		state: &state,
 	}
-	dtlsstate.CommonState(conn.state).ServerName = handshakeConfig.ServerName
+	conn.state.Common.ServerName = handshakeConfig.ServerName
 	if verify := handshakeConfig.VerifyConnection; verify != nil {
 		handshakeConfig.VerifyConnection = func(state *dtlsstate.State13) error {
 			conn.publishHandshakeState()
@@ -361,7 +362,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 		return err
 	}
 
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 
 	if err := c.handshake(ctx, start); err != nil {
 		if !c.isHandshakeCompletedSuccessfully() {
@@ -402,16 +403,14 @@ func (c *Conn) prepareHandshakeStart() (handshakeStart, error) {
 		defer c.lock.Unlock()
 		c.state = resumed
 		start := handshakeStart{fsmState: dtlshandshake.StateFinished, flight: dtlsflight13.Flight4}
-		if dtlsstate.CommonState(resumed).IsClient {
+		if resumed.Common.IsClient {
 			start.flight = dtlsflight13.Flight5
 		}
 
 		return start, c.registerLocalCID()
 	}
 
-	state := dtlsstate.Activate13(c.state)
-	c.state = state
-	if state.IsClient {
+	if c.state.IsClient {
 		return handshakeStart{flight: dtlsflight13.Flight1, fsmState: dtlshandshake.StatePreparing}, nil
 	}
 
@@ -750,7 +749,7 @@ func (c *Conn) publishHandshakeState() {
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
 func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
-	profile := dtlsstate.CommonState(c.state).SRTPProtectionProfile()
+	profile := c.state.Common.SRTPProtectionProfile()
 	if profile == 0 {
 		return 0, false
 	}
@@ -760,7 +759,7 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 
 // RemoteSRTPMasterKeyIdentifier returns the MasterKeyIdentifier value from the use_srtp.
 func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	if profile := common.SRTPProtectionProfile(); profile == 0 {
 		return nil, false
 	}
@@ -941,9 +940,9 @@ func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *hand
 		return err
 	}
 
-	c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)", srvCliStr(dtlsstate.CommonState(c.state).IsClient), dtlsHandshake.Header.Type.String(), outbound.Epoch, dtlsHandshake.Header.MessageSequence)
+	c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)", srvCliStr(c.state.Common.IsClient), dtlsHandshake.Header.Type.String(), outbound.Epoch, dtlsHandshake.Header.MessageSequence)
 
-	return c.pushHandshake(handshakeRaw, outbound.Epoch, dtlsHandshake.Header.MessageSequence, dtlsHandshake.Header.Type, dtlsstate.CommonState(c.state).IsClient)
+	return c.pushHandshake(handshakeRaw, outbound.Epoch, dtlsHandshake.Header.MessageSequence, dtlsHandshake.Header.Type, c.state.Common.IsClient)
 }
 
 func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -1075,7 +1074,7 @@ func (c *Conn) allocateLocalSequenceNumber(epoch uint64) (uint64, error) {
 	if c.exporting.Load() {
 		return 0, ErrConnClosed
 	}
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	if state := c.state; state != nil && state.TrafficKeys != nil {
 		common.RetainTrafficCounters(state.TrafficKeys)
 	}
@@ -1149,7 +1148,7 @@ func (c *Conn) sealRecordContent(
 
 func (c *Conn) sealRecordContentWithPadding(epoch, seq uint64, contentType protocol.ContentType, plaintext []byte, paddingLen uint) ([]byte, error) {
 	if epoch == dtlsflight13.EpochEarlyData &&
-		(!dtlsstate.CommonState(c.state).IsClient || contentType != protocol.ContentTypeApplicationData) {
+		(!c.state.Common.IsClient || contentType != protocol.ContentTypeApplicationData) {
 		return nil, dtlserrors.ErrInvalidContentType
 	}
 	generation, err := c.writeTrafficGeneration(epoch)
@@ -1163,7 +1162,7 @@ func (c *Conn) sealRecordContentWithPadding(epoch, seq uint64, contentType proto
 	}
 	header := c.unifiedRecordHeader(epoch, seq)
 
-	capabilities, err := generation.Capabilities(dtlsstate.CommonState(c.state).CipherSuite)
+	capabilities, err := generation.Capabilities(c.state.Common.CipherSuite)
 	if err != nil {
 		return nil, err
 	}
@@ -1459,7 +1458,7 @@ func (c *Conn) handshakeRecordLayout(outbound *dtlsflight.Outbound) (handshakeRe
 	if outbound.Protection != dtlsflight.ProtectionCiphertext {
 		return layout, nil
 	}
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	generation, err := c.writeTrafficGeneration(outbound.Epoch)
 	if err != nil {
 		return layout, err
@@ -1742,7 +1741,7 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 		return nil, nil
 	}
 
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	localCID := common.LocalConnectionIDForInboundRecords()
 	cidLength := len(localCID)
 	if state := c.state; state != nil && state.CID.Negotiated {
@@ -1823,7 +1822,7 @@ func (c *Conn) unmarshalCiphertextRecord(
 ) (recordlayer.ParsedRecord, error) {
 	record := recordlayer.ParsedRecord{}
 	hasCID := buf[0]&recordwire.CIDBit != 0
-	localCID := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
+	localCID := c.state.Common.LocalConnectionIDForInboundRecords()
 	cidExpected, cidAllowed, err := c.ciphertextCIDPolicy(localCID)
 	if err != nil {
 		return record, err
@@ -1849,7 +1848,7 @@ func (c *Conn) unmarshalCiphertextRecord(
 
 func (c *Conn) allowsMissingCiphertextCID(record recordlayer.ParsedRecord, datagramContainsCID bool) bool {
 	return datagramContainsCID || record.EpochLow() == uint8(dtlsflight13.EpochEarlyData) &&
-		dtlsstate.CommonState(c.state).RemoteEpoch() <= dtlsflight13.EpochApplication
+		c.state.Common.RemoteEpoch() <= dtlsflight13.EpochApplication
 }
 
 func (c *Conn) ciphertextCIDPolicy(localCID []byte) (expected, allowed bool, err error) {
@@ -1896,7 +1895,7 @@ func (c *Conn) openCiphertextWithGeneration(
 	record recordlayer.ParsedRecord,
 	generation *dtlsstate.TrafficGeneration,
 ) (openedRecord, uint64, error) {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	capabilities, err := generation.Capabilities(common.CipherSuite)
 	if err != nil {
 		return openedRecord{}, 0, operationalProtectionError(err)
@@ -1922,7 +1921,7 @@ func (c *Conn) openCiphertextWithGeneration(
 }
 
 func (c *Conn) openUnmaskedCiphertext(record recordlayer.ParsedRecord, generation *dtlsstate.TrafficGeneration, capabilities cryptosuite.Capabilities, clearSequence uint16) (openedRecord, uint64, error) {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	var headerBuffer [260]byte
 	clearHeader := headerBuffer[:len(record.HeaderBytes())]
 	copy(clearHeader, record.HeaderBytes())
@@ -1967,7 +1966,7 @@ func (c *Conn) parseUnifiedInnerPlaintext(plaintext []byte, epoch, sequenceNumbe
 		return openedRecord{}, 0, dtlserrors.ErrInvalidPacketLength
 	}
 	if epoch == dtlsflight13.EpochEarlyData &&
-		(dtlsstate.CommonState(c.state).IsClient || innerPlaintext.RealType != protocol.ContentTypeApplicationData) {
+		(c.state.Common.IsClient || innerPlaintext.RealType != protocol.ContentTypeApplicationData) {
 		return openedRecord{}, 0, dtlserrors.ErrInvalidContentType
 	}
 
@@ -2044,9 +2043,9 @@ func (c *Conn) prepareCiphertextPacket(buf []byte, rAddr net.Addr, bufferLease *
 			return incomingPacketState{}, false, err
 		}
 		if errors.Is(err, dtlserrors.ErrInvalidEpoch) {
-			c.handleFutureCiphertextPacket(ciphertext.EpochLow(), dtlsstate.CommonState(c.state).RemoteEpoch(), rAddr, buf, bufferLease)
+			c.handleFutureCiphertextPacket(ciphertext.EpochLow(), c.state.Common.RemoteEpoch(), rAddr, buf, bufferLease)
 		}
-		c.log.Debugf("%s: decrypt failed: %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), err)
+		c.log.Debugf("%s: decrypt failed: %s", srvCliStr(c.state.Common.IsClient), err)
 
 		return incomingPacketState{}, false, nil
 	}
@@ -2091,7 +2090,7 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 	if !c.passesReplayCutoff(epoch, sequenceNumber) {
 		return nil, false
 	}
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	if common.ReplayDetector == nil {
 		common.ReplayDetector = make(map[uint64]replaydetector.ReplayDetector)
 	}
@@ -2152,7 +2151,7 @@ func (c *Conn) queueIfCipherSuiteUninitialized(rAddr net.Addr, buf []byte, buffe
 }
 
 func (c *Conn) hasInboundRecordProtection() bool {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	state13 := c.state
 	if state13 == nil || state13.TrafficKeys == nil {
 		return false
@@ -2206,13 +2205,13 @@ func (c *Conn) validLegacyEpoch(header recordlayer.ParsedRecord) bool {
 }
 
 func (c *Conn) isOldPlaintextAlert(header recordlayer.ParsedRecord) bool {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 
 	return header.Epoch() == 0 && header.ContentType() == protocol.ContentTypeAlert && common.RemoteEpoch() != 0
 }
 
 func (c *Conn) unmarshalLegacyHeader(buf []byte) (recordlayer.ParsedRecord, bool) {
-	localCID := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
+	localCID := c.state.Common.LocalConnectionIDForInboundRecords()
 	header, err := recordlayer.ParseRecord(buf, len(localCID))
 	if err != nil {
 		// Decode error must be silently discarded
@@ -2262,11 +2261,11 @@ func (c *Conn) cacheReassembledHandshakes() error {
 	for out, epoch := c.fragmentBuffer.Pop(); out != nil; out, epoch = c.fragmentBuffer.Pop() {
 		header := &handshake.Header{}
 		if err := header.Unmarshal(out); err != nil {
-			c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), err)
+			c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(c.state.Common.IsClient), err)
 
 			continue
 		}
-		if err := c.pushHandshake(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient); err != nil {
+		if err := c.pushHandshake(out, epoch, header.MessageSequence, header.Type, !c.state.Common.IsClient); err != nil {
 			return err
 		}
 	}
@@ -2298,15 +2297,15 @@ func (c *Conn) validHandshakeFragmentEpoch(header handshake.Header, epoch uint64
 		if epoch != 0 {
 			return false
 		}
-		common := dtlsstate.CommonState(c.state)
+		common := c.state.Common
 		if max(common.LocalEpoch(), common.RemoteEpoch()) >= dtlsflight13.EpochHandshake {
 			// Old hellos may signal retransmission, but cannot consume a new sequence.
-			return int(header.MessageSequence) < dtlsstate.HandshakeRecvSequence(c.state)
+			return int(header.MessageSequence) < c.state.HandshakeRecvSequence
 		}
 
 		// Before keys are installed, only the expected hello or an old one
 		// can be received. Future hellos must not reserve encrypted sequences.
-		return int(header.MessageSequence) <= dtlsstate.HandshakeRecvSequence(c.state)
+		return int(header.MessageSequence) <= c.state.HandshakeRecvSequence
 	case handshake.TypeNewSessionTicket, handshake.TypeKeyUpdate,
 		handshake.TypeNewConnectionID, handshake.TypeRequestConnectionID:
 		return epoch >= dtlsflight13.EpochApplication
@@ -2397,7 +2396,7 @@ func (c *Conn) handleAlertRecord(content *alert.Alert, markPacketAsValid func() 
 	default:
 		content.Level = alert.Fatal
 	}
-	c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
+	c.log.Tracef("%s: <- %s", srvCliStr(c.state.Common.IsClient), content.String())
 	var responseAlert *alert.Alert
 	if content.Level == alert.Warning && content.Description == alert.CloseNotify {
 		c.closeNotifyReceived.Store(true)
@@ -2442,14 +2441,14 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 	if !ok {
 		return packetOutcome{}, nil
 	}
-	prepared.markPacketAsValid = c.rrc.WrapReplayMarker(prepared.markPacketAsValid, rAddr, len(buf), c.RemoteAddr, c.cidPathMigrationPolicy == CIDPathMigrationRRC && dtlsstate.CommonState(c.state).RRCNegotiated)
+	prepared.markPacketAsValid = c.rrc.WrapReplayMarker(prepared.markPacketAsValid, rAddr, len(buf), c.RemoteAddr, c.cidPathMigrationPolicy == CIDPathMigrationRRC && c.state.Common.RRCNegotiated)
 	if prepared.contentType == protocol.ContentTypeHandshake {
 		outcome, isLatestSeqNum, cacheErr := c.bufferHandshakeRecord(
 			prepared.content,
 			prepared.number,
 			prepared.markPacketAsValid,
 		)
-		returnRoutabilityConn{conn: c}.HandleCandidate(ctx, dtlsstate.CommonState(c.state).RRCNegotiated, prepared.originalCID, isLatestSeqNum, rAddr)
+		returnRoutabilityConn{conn: c}.HandleCandidate(ctx, c.state.Common.RRCNegotiated, prepared.originalCID, isLatestSeqNum, rAddr)
 
 		return outcome, cacheErr
 	}
@@ -2466,7 +2465,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		return outcome, err
 	}
 
-	returnRoutabilityConn{conn: c}.HandleCandidate(ctx, dtlsstate.CommonState(c.state).RRCNegotiated, prepared.originalCID, isLatestSeqNum, rAddr)
+	returnRoutabilityConn{conn: c}.HandleCandidate(ctx, c.state.Common.RRCNegotiated, prepared.originalCID, isLatestSeqNum, rAddr)
 
 	return outcome, nil
 }
@@ -2493,7 +2492,7 @@ func (c *Conn) processIncomingPacket(ctx context.Context, buf []byte, rAddr net.
 }
 
 func (c *Conn) syncFragmentBufferHandshakeSequence() {
-	handshakeRecvSequence := dtlsstate.HandshakeRecvSequence(c.state)
+	handshakeRecvSequence := c.state.HandshakeRecvSequence
 	if c.fragmentBuffer == nil || handshakeRecvSequence <= 0 ||
 		handshakeRecvSequence > int(^uint16(0)) {
 		return
@@ -2523,7 +2522,7 @@ func (c *Conn) signalHandshakeTerminated(err error) {
 }
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	outbound := &dtlsflight.Outbound{
 		Epoch: common.LocalEpoch(),
 		Content: &alert.Alert{
@@ -2772,11 +2771,11 @@ func (c *Conn) isConnectionClosed() bool {
 }
 
 func (c *Conn) setLocalEpoch(epoch uint64) {
-	dtlsstate.CommonState(c.state).SetLocalEpoch(epoch)
+	c.state.Common.SetLocalEpoch(epoch)
 }
 
 func (c *Conn) setRemoteEpoch(epoch uint64) {
-	dtlsstate.CommonState(c.state).SetRemoteEpoch(epoch)
+	c.state.Common.SetRemoteEpoch(epoch)
 }
 
 func (c *Conn) commitLocalKeyUpdate(generation *dtlsstate.TrafficGeneration) error {
@@ -2835,7 +2834,7 @@ func (c *Conn) RemoteAddr() net.Addr {
 }
 
 func (c *Conn) sessionKey() []byte {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	if common.IsClient {
 		// As ServerName can be like 0.example.com, it's better to add
 		// delimiter character which is not allowed to be in
@@ -2885,7 +2884,7 @@ func (c *Conn) acceptEarlyApplicationData(epoch, size uint64) (bool, error) {
 }
 
 func (c *Conn) pushHandshake(data []byte, epoch uint64, sequence uint16, typ handshake.Type, isClient bool) error {
-	common := dtlsstate.CommonState(c.state)
+	common := c.state.Common
 	if isClient == common.IsClient && epoch >= dtlsflight13.EpochApplication {
 		return nil
 	}
