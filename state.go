@@ -10,16 +10,16 @@ import (
 	"sync/atomic"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/keyschedule"
+	"github.com/pion/dtls/v4/internal/crypto/prf"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol/recordlayer"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	dtlsutil "github.com/pion/dtls/v4/internal/util"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/keyschedule"
-	"github.com/pion/dtls/v4/pkg/crypto/prf"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
-	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 )
 
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and

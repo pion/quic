@@ -13,11 +13,11 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 // [RFC9147 Section-5.8.1]

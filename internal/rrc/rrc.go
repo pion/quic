@@ -12,7 +12,7 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/protocol"
 )
 
 const pathValidationTimeout = time.Second

@@ -12,8 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 )
 
 // TrafficGeneration binds an epoch and traffic-secret generation to the

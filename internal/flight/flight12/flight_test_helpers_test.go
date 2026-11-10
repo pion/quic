@@ -8,8 +8,8 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/stretchr/testify/require"
 )
 

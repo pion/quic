@@ -9,8 +9,8 @@ import (
 	"slices"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
 )
 
 // SRTPDecision is the validated use_srtp result for one handshake.

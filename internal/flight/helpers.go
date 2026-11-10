@@ -11,14 +11,14 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/negotiation"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 func FindMatchingSRTPProfile(a, b []dtlsconfig.SRTPProtectionProfile) (dtlsconfig.SRTPProtectionProfile, bool) {

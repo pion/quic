@@ -10,15 +10,15 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls12"
-	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
+	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
+	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
 
 // ClientHelloInfo contains information from a ClientHello message in order to

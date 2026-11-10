@@ -8,10 +8,10 @@ import (
 	"encoding/binary"
 	"math"
 
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/recordwire"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/protocol"
 	"golang.org/x/crypto/cryptobyte"
 )
 

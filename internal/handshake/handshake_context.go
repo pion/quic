@@ -13,9 +13,9 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
 )
 
 // handshakeContext groups the DTLS 1.3 state that must move together while

@@ -10,10 +10,10 @@ import (
 	"encoding/binary"
 	"hash"
 
+	"github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/keyschedule"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/keyschedule"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/protocol"
 	"golang.org/x/crypto/chacha20"
 	"golang.org/x/crypto/chacha20poly1305"
 )

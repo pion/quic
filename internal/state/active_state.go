@@ -4,8 +4,8 @@
 package state
 
 import (
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 )
 
 // Active is a concrete DTLS version state that shares common connection fields.

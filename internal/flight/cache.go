@@ -11,12 +11,12 @@ import (
 	"sync"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/prf"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/prf"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
 
 type Cache struct {

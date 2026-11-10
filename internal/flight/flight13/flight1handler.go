@@ -9,16 +9,16 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls12"
-	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
+	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
 
 func flight1Generate(

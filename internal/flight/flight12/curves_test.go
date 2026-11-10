@@ -8,12 +8,12 @@ import (
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	"github.com/stretchr/testify/require"
 )
 

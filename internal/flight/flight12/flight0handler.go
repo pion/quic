@@ -10,16 +10,16 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	extension12 "github.com/pion/dtls/v4/internal/protocol/extension/dtls12"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	extension12 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls12"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 // renegotiationInfoSCSV is TLS_EMPTY_RENEGOTIATION_INFO_SCSV defined in RFC 5746.

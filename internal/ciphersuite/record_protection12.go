@@ -13,10 +13,10 @@ import (
 	"encoding/binary"
 	"sync"
 
+	"github.com/pion/dtls/v4/internal/crypto/ccm"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/prf"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/pkg/crypto/ccm"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/prf"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 

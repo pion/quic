@@ -10,12 +10,12 @@ import (
 	"sync/atomic"
 
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
+	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	"github.com/pion/dtls/v4/internal/util"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 // State12 holds state that is meaningful only for DTLS 1.2.

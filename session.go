@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/protocol"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/protocol"
 )
 
 // SessionTicket contains the metadata needed to use a DTLS 1.3 ticket.

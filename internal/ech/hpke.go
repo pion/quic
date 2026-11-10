@@ -10,7 +10,7 @@ import (
 	"crypto/hpke"
 	"slices"
 
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
 )
 
 func Available() bool { return true }

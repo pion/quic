@@ -8,10 +8,10 @@ import (
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

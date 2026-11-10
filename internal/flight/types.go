@@ -7,8 +7,8 @@ import (
 	"context"
 	"crypto"
 
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
 
 type Conn interface {

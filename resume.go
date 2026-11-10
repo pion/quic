@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/protocol"
 )
 
 func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {

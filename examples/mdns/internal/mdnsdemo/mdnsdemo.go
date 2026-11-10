@@ -21,9 +21,9 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v4"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
+	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/mdns/v2"
 	"golang.org/x/net/ipv4"
 )

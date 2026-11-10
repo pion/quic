@@ -12,8 +12,8 @@ import (
 	"time"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
-	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/crypto/selfsign"
+	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

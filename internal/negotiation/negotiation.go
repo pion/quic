@@ -11,9 +11,9 @@ import (
 	"slices"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
 
 // ClientHelloSnapshot is an immutable copy of a validated ClientHello body.

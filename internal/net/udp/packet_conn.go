@@ -27,7 +27,6 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	idtlsnet "github.com/pion/dtls/v4/internal/net"
-	dtlsnet "github.com/pion/dtls/v4/pkg/net"
 	"github.com/pion/transport/v5/deadline"
 )
 
@@ -188,7 +187,7 @@ func WithReceiveBufferSize(size int) ListenerOption {
 }
 
 // Listen creates a new listener over conn.
-func Listen(conn net.PacketConn, opts ...ListenerOption) dtlsnet.PacketListener {
+func Listen(conn net.PacketConn, opts ...ListenerOption) idtlsnet.PacketListener {
 	packetListener := &listener{
 		pConn:             conn,
 		backlog:           defaultListenBacklog,

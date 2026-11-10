@@ -11,18 +11,18 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
+	"github.com/pion/dtls/v4/internal/crypto/prf"
+	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls12"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
-	"github.com/pion/dtls/v4/pkg/crypto/prf"
-	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
-	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 )
 
 func flight5Parse(_ context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {

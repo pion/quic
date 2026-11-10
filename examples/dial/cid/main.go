@@ -13,8 +13,8 @@ import (
 
 	"github.com/pion/dtls/v4"
 	"github.com/pion/dtls/v4/examples/util"
-	"github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/protocol"
 )
 
 func main() {

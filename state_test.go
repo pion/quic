@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/selfsign"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/protocol"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
-	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/stretchr/testify/require"
 )
 

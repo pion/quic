@@ -3,7 +3,7 @@
 
 package config
 
-import "github.com/pion/dtls/v4/pkg/protocol"
+import "github.com/pion/dtls/v4/internal/protocol"
 
 // NormalizeProtocolVersionRange constrains the version range to supported DTLS versions.
 func NormalizeProtocolVersionRange(

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
 )
 
 var (

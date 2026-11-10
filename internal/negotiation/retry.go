@@ -9,13 +9,13 @@ import (
 	"slices"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
 
 // RetryRequest is the set of changes authorized by one validated

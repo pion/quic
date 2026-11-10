@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/elliptic"
+	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	"github.com/pion/dtls/v4/internal/ech"
 	"github.com/pion/dtls/v4/internal/negotiation"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
-	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
-	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
+	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
+	handshake13 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls13"
 )
 
 // PSK associates an offered identity state with its secret, hash, and binder label.

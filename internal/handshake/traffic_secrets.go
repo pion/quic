@@ -8,12 +8,12 @@ import (
 	"hash"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/crypto/keyschedule"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	"github.com/pion/dtls/v4/pkg/crypto/keyschedule"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 const (

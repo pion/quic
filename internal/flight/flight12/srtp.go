@@ -9,8 +9,8 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/negotiation"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
 )
 
 func validateServerSRTP(snapshot negotiation.ClientHelloSnapshot, responses []extension.Value, localProfiles []extension.SRTPProtectionProfile, want negotiation.SRTPDecision) error {

@@ -17,11 +17,11 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlshandshake "github.com/pion/dtls/v4/internal/handshake"
 	idtlsnet "github.com/pion/dtls/v4/internal/net"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/protocol/recordlayer"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
-	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 	"github.com/pion/transport/v5/netctx"
 )
 

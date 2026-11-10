@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"testing"
 
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 )
 
 type benchmarkProtectionFactory func() (cryptosuite.Protection, error)

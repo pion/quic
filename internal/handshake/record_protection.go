@@ -9,10 +9,10 @@ import (
 
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 )
 
 func InitHandshakeRecordProtection(state *dtlsstate.State13) error {

@@ -11,11 +11,11 @@ import (
 	"hash"
 	"math"
 
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
+	"github.com/pion/dtls/v4/internal/crypto/prf"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
-	"github.com/pion/dtls/v4/pkg/crypto/prf"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/protocol"
 )
 
 func ForID(id cryptosuite.ID) cryptosuite.Suite { return builtinCipherSuites[id] }

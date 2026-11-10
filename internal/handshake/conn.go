@@ -7,8 +7,8 @@ import (
 	"context"
 
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
 )
 
 // RecvHandshakeState signals that a handshake packet has been received.

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
-	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/internal/crypto/ciphersuite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

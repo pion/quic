@@ -9,15 +9,15 @@ import (
 	"crypto/tls"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
-	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
-	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/internal/protocol/handshake/dtls13"
 )
 
 func flight5Generate(

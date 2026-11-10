@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v4"
-	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
-	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/crypto/selfsign"
+	"github.com/pion/dtls/v4/internal/protocol"
 	"golang.org/x/term"
 )
 

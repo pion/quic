@@ -21,7 +21,6 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	dtlsnet "github.com/pion/dtls/v4/pkg/net"
 	"github.com/pion/transport/v5/deadline"
 )
 
@@ -86,7 +85,7 @@ func NewPacketBufferWithSize(bufSize int) *PacketBuffer {
 
 // NewPacketBuffer creates a new PacketBuffer with default buffer size.
 func NewPacketBuffer() *PacketBuffer {
-	return NewPacketBufferWithSize(dtlsnet.PacketBufferRingbufferSize)
+	return NewPacketBufferWithSize(PacketBufferRingbufferSize)
 }
 
 // WriteTo writes a single packet to the buffer. The supplied address will

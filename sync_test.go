@@ -15,11 +15,11 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/pion/dtls/v4/internal/crypto/selfsign"
+	"github.com/pion/dtls/v4/internal/protocol"
+	"github.com/pion/dtls/v4/internal/protocol/extension"
+	"github.com/pion/dtls/v4/internal/protocol/recordlayer"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
-	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
-	"github.com/pion/dtls/v4/pkg/protocol"
-	"github.com/pion/dtls/v4/pkg/protocol/extension"
-	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

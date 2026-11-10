@@ -1,0 +1,206 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package dtls12
+
+import (
+	"crypto/tls"
+	"encoding/binary"
+
+	"github.com/pion/dtls/v4/internal/crypto/clientcertificate"
+	"github.com/pion/dtls/v4/internal/crypto/signaturehash"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
+)
+
+/*
+MessageCertificateRequest is so a non-anonymous server can optionally
+request a certificate from the client, if appropriate for the selected cipher
+suite.  This message, if sent, will immediately follow the ServerKeyExchange
+message (if it is sent; otherwise, this message follows the
+server's Certificate message).
+
+https://tools.ietf.org/html/rfc5246#section-7.4.4
+*/
+type MessageCertificateRequest struct {
+	CertificateTypes            []clientcertificate.Type
+	SignatureHashAlgorithms     []signaturehash.Algorithm
+	CertificateAuthoritiesNames [][]byte
+}
+
+const (
+	messageCertificateRequestMinLength = 5
+)
+
+// Type returns the Handshake Type.
+func (m MessageCertificateRequest) Type() handshakewire.Type {
+	return handshakewire.TypeCertificateRequest
+}
+
+// MarshalSize returns the minimal size required for MarshalTo.
+func (m *MessageCertificateRequest) MarshalSize() int {
+	return 1 +
+		len(m.CertificateTypes) +
+		2 + // number of SignatureHashAlgorithms
+		2*len(m.SignatureHashAlgorithms) + // SignatureHashAlgorithms size
+		2 + // casLength
+		m.casLength()
+}
+
+func (m *MessageCertificateRequest) casLength() int {
+	casLength := 0
+	for _, ca := range m.CertificateAuthoritiesNames {
+		casLength += 2 + len(ca)
+	}
+
+	return casLength
+}
+
+// Marshal encodes the Handshake.
+func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
+	if err := m.validateMarshal(); err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageCertificateRequest) MarshalTo(out []byte) (int, error) {
+	if err := m.validateMarshal(); err != nil {
+		return 0, err
+	}
+
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	//nolint:gosec // G115: certificate types count is validated to be <= 255 above.
+	offset := 0
+	out[offset] = byte(len(m.CertificateTypes)) //nolint:gosec // G115
+	offset += 1
+	for _, v := range m.CertificateTypes {
+		out[offset] = byte(v)
+		offset += 1
+	}
+
+	binary.BigEndian.PutUint16(out[offset:], uint16(len(m.SignatureHashAlgorithms)*2)) //nolint:gosec //G115
+	offset += 2
+
+	for _, v := range m.SignatureHashAlgorithms {
+		tmp := v.Marshal()
+		n := copy(out[offset:], tmp)
+		offset += n
+	}
+
+	// Distinguished Names
+	binary.BigEndian.PutUint16(out[offset:], uint16(m.casLength())) //nolint:gosec //G115
+	offset += 2
+	if m.casLength() > 0 {
+		for _, ca := range m.CertificateAuthoritiesNames {
+			binary.BigEndian.PutUint16(out[offset:], uint16(len(ca))) //nolint:gosec //G115
+			offset += 2
+			n := copy(out[offset:], ca)
+			offset += n
+		}
+	}
+
+	return m.MarshalSize(), nil
+}
+
+func (m *MessageCertificateRequest) validateMarshal() error {
+	if len(m.CertificateTypes) > 255 {
+		return dtlserrors.ErrCertificateTypesTooLong
+	}
+
+	return nil
+}
+
+// Unmarshal populates the message from encoded data.
+func (m *MessageCertificateRequest) Unmarshal(data []byte) error {
+	if len(data) < messageCertificateRequestMinLength {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	offset := 0
+	certificateTypesLength := int(data[0])
+	offset++
+
+	if (offset + certificateTypesLength) > len(data) {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	m.appendCertificateTypes(data[offset : offset+certificateTypesLength])
+	offset += certificateTypesLength
+	if len(data) < offset+2 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+	signatureHashAlgorithmsLength := int(binary.BigEndian.Uint16(data[offset:]))
+	offset += 2
+
+	if (offset + signatureHashAlgorithmsLength) > len(data) {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	for i := 0; i < signatureHashAlgorithmsLength; i += 2 {
+		if len(data) < (offset + i + 2) {
+			return dtlserrors.ErrBufferTooSmall
+		}
+
+		scheme := binary.BigEndian.Uint16(data[offset+i : offset+i+2])
+		var alg signaturehash.Algorithm
+		if err := alg.Unmarshal(tls.SignatureScheme(scheme)); err != nil {
+			continue // skip unrecognized algorithms rather than failing the handshake
+		}
+		m.SignatureHashAlgorithms = append(m.SignatureHashAlgorithms, alg)
+	}
+
+	offset += signatureHashAlgorithmsLength
+	if len(data) < offset+2 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	return m.unmarshalAuthorities(data, offset)
+}
+
+func (m *MessageCertificateRequest) appendCertificateTypes(data []byte) {
+	for i := range data {
+		certType := clientcertificate.Type(data[i])
+		if _, ok := clientcertificate.Types()[certType]; ok {
+			m.CertificateTypes = append(m.CertificateTypes, certType)
+		}
+	}
+}
+
+func (m *MessageCertificateRequest) unmarshalAuthorities(data []byte, offset int) error {
+	casLength := int(binary.BigEndian.Uint16(data[offset:]))
+	offset += 2
+	if (offset + casLength) > len(data) {
+		return dtlserrors.ErrBufferTooSmall
+	}
+	cas := make([]byte, casLength)
+	copy(cas, data[offset:offset+casLength])
+	m.CertificateAuthoritiesNames = nil
+	for len(cas) > 0 {
+		if len(cas) < 2 {
+			return dtlserrors.ErrBufferTooSmall
+		}
+		caLen := binary.BigEndian.Uint16(cas)
+		cas = cas[2:]
+
+		if len(cas) < int(caLen) {
+			return dtlserrors.ErrBufferTooSmall
+		}
+
+		m.CertificateAuthoritiesNames = append(m.CertificateAuthoritiesNames, cas[:caLen])
+		cas = cas[caLen:]
+	}
+
+	return nil
+}
