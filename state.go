@@ -39,7 +39,6 @@ type State struct {
 	CipherSuiteID      cryptosuite.ID
 	PeerCertificates   [][]byte
 	IdentityHint       []byte
-	SessionID          []byte
 	NegotiatedProtocol string
 	// ServerName is the negotiated SNI, or the public name during ECH rejection verification.
 	ServerName string
@@ -122,7 +121,6 @@ type serializedState struct {
 	PeerSRTPMKI           []byte
 	PeerCertificates      [][]byte
 	IdentityHint          []byte
-	SessionID             []byte
 	LocalConnectionID     []byte
 	RemoteConnectionID    []byte
 	RRCNegotiated         bool
@@ -163,16 +161,10 @@ func snapshotCommonState(common *dtlsstate.Common) *State {
 		cipherSuiteDescriptor: common.CipherSuite,
 		PeerCertificates:      dtlsutil.CloneByteSlices(common.PeerCertificates),
 		IdentityHint:          bytes.Clone(common.IdentityHint),
-		SessionID:             bytes.Clone(common.SessionID),
 		NegotiatedProtocol:    common.NegotiatedProtocol,
 		ServerName:            common.ServerName,
 		ECHAccepted:           common.ECHAccepted,
 	}
-}
-
-// NegotiatedVersion returns the DTLS version negotiated for this connection.
-func (s *State) NegotiatedVersion() protocol.Version {
-	return s.version
 }
 
 // Role indicates which side of the DTLS handshake an endpoint took.
@@ -229,7 +221,6 @@ func (s *State) serialize() (*serializedState, error) {
 		PeerSRTPMKI:           bytes.Clone(s.peerSRTPMKI),
 		PeerCertificates:      s.PeerCertificates,
 		IdentityHint:          s.IdentityHint,
-		SessionID:             s.SessionID,
 		LocalConnectionID:     s.localConnectionID,
 		RemoteConnectionID:    s.remoteConnectionID,
 		RRCNegotiated:         s.rrcNegotiated,
@@ -272,7 +263,6 @@ func (s *State) deserialize(serialized serializedState) {
 	s.CipherSuiteID = cryptosuite.ID(serialized.CipherSuiteID)
 	s.PeerCertificates = serialized.PeerCertificates
 	s.IdentityHint = serialized.IdentityHint
-	s.SessionID = serialized.SessionID
 	s.NegotiatedProtocol = serialized.NegotiatedProtocol
 	s.ServerName = serialized.ServerName
 	s.ECHAccepted = serialized.ECHAccepted
@@ -318,8 +308,8 @@ func (s *State) restoreCommonState(suite cryptosuite.Suite) *dtlsstate.Common {
 	common := &dtlsstate.Common{
 		LocalRandom: s.localRandom, RemoteRandom: s.remoteRandom,
 		CipherSuite: suite, IsClient: s.isClient,
-		PeerCertificates: dtlsutil.CloneByteSlices(s.PeerCertificates),
-		IdentityHint:     bytes.Clone(s.IdentityHint), SessionID: bytes.Clone(s.SessionID),
+		PeerCertificates:   dtlsutil.CloneByteSlices(s.PeerCertificates),
+		IdentityHint:       bytes.Clone(s.IdentityHint),
 		NegotiatedProtocol: s.NegotiatedProtocol, RRCNegotiated: s.rrcNegotiated,
 		ServerName:                    s.ServerName,
 		ECHAccepted:                   s.ECHAccepted,

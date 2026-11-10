@@ -24,9 +24,6 @@ type Session struct {
 	Secret []byte //nolint:gosec // Session stores intentionally retain the resumption secret.
 	// Ticket holds the ticket metadata.
 	Ticket *SessionTicket
-	// Version identifies entries with authentication and negotiation metadata.
-	// Legacy entries without this metadata require a full handshake.
-	Version uint8
 	// IsClient binds the session to the endpoint role that authenticated it.
 	IsClient bool
 	// IdentityHint is the original external PSK identity, if any.
@@ -72,8 +69,7 @@ func validSessionTicketAge(age time.Duration, lifetime uint32) bool {
 }
 
 // SessionStore defines methods needed for session resumption.
-// Stores must preserve every Session field, including authentication metadata.
-// Entries containing only an ID and Secret require a full handshake.
+// Stores must preserve every Session field.
 type SessionStore interface {
 	// Set save a session.
 	// For client, use server name as key.
@@ -81,8 +77,6 @@ type SessionStore interface {
 	Set(key []byte, s Session) error
 	// Get fetch a session.
 	Get(key []byte) (Session, error)
-	// Del clean saved session.
-	Del(key []byte) error
 }
 
 // EarlyDataSessionStore optionally supports replay-protected early data.

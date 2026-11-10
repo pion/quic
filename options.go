@@ -869,7 +869,7 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 	}
 	if config.sessionStore != nil {
 		handshakeConfig.SetSessionTicket = func(key, id, secret, identity []byte, ticket dtlsstate.SessionTicket) error {
-			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, IdentityHint: identity, Ticket: &ticket, Version: 1, IsClient: config.isClient})
+			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, IdentityHint: identity, Ticket: &ticket, IsClient: config.isClient})
 		}
 		handshakeConfig.GetSessionTicket = func(key []byte, serverName string) (*dtlsstate.PSK, error) {
 			session, err := config.sessionStore.Get(key)
@@ -877,7 +877,7 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 				return nil, err
 			}
 
-			if session.Version != 1 || session.IsClient != config.isClient {
+			if session.IsClient != config.isClient {
 				return nil, nil //nolint:nilnil // An ineligible cached ticket is a cache miss.
 			}
 

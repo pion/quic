@@ -72,7 +72,7 @@ func testKeyLogHandshake(t *testing.T, certificate tls.Certificate, suite crypto
 		if suite == cryptosuite.TLS_AES_256_GCM_SHA384 {
 			secretLen = 48
 		}
-		ticket := Session{Version: 1, IsClient: true, ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, secretLen), Ticket: &SessionTicket{CipherSuite: suite, CreatedAt: time.Now().Add(-time.Second), Lifetime: 60, MaxEarlyDataSize: 32, PeerCertificates: certificate.Certificate}}
+		ticket := Session{IsClient: true, ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, secretLen), Ticket: &SessionTicket{CipherSuite: suite, CreatedAt: time.Now().Add(-time.Second), Lifetime: 60, MaxEarlyDataSize: 32, PeerCertificates: certificate.Certificate}}
 		limit := uint32(0)
 		if scenario == keyLogEarlyData {
 			limit = 32

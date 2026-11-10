@@ -712,7 +712,6 @@ func (c *Conn) ConnectionState() (State, bool) {
 		state := *snapshot
 		state.PeerCertificates = util.CloneByteSlices(snapshot.PeerCertificates)
 		state.IdentityHint = bytes.Clone(snapshot.IdentityHint)
-		state.SessionID = bytes.Clone(snapshot.SessionID)
 		if snapshot.KeyUsage != nil {
 			usage := *snapshot.KeyUsage
 			state.KeyUsage = &usage
@@ -2833,16 +2832,13 @@ func (c *Conn) RemoteAddr() net.Addr {
 	return c.rAddr
 }
 
+// sessionKey identifies a client's cached session tickets. Only clients store
+// and look up tickets by this key; servers find tickets by their identity.
 func (c *Conn) sessionKey() []byte {
-	common := c.state.Common
-	if common.IsClient {
-		// As ServerName can be like 0.example.com, it's better to add
-		// delimiter character which is not allowed to be in
-		// neither address or domain name.
-		return []byte(c.rAddr.String() + "_" + c.handshakeConfig.ServerName)
-	}
-
-	return common.SessionID
+	// As ServerName can be like 0.example.com, it's better to add
+	// delimiter character which is not allowed to be in
+	// neither address or domain name.
+	return []byte(c.rAddr.String() + "_" + c.handshakeConfig.ServerName)
 }
 
 // SetDeadline implements net.Conn.SetDeadline.

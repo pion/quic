@@ -144,7 +144,7 @@ func TestResume(t *testing.T) {
 				require.NoError(t, resumedServer.HandshakeContext(ctx))
 				restored, ok := resumedClient.ConnectionState()
 				require.True(t, ok)
-				require.Equal(t, test.version, restored.NegotiatedVersion())
+				require.Equal(t, test.version, restored.version)
 				actual, err := restored.ExportKeyingMaterial("resume-test", nil, 32)
 				require.NoError(t, err)
 				require.Equal(t, exported, actual)

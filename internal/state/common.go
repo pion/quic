@@ -32,7 +32,6 @@ type Common struct {
 	CipherSuite               cryptosuite.Suite // nil if a cipherSuite hasn't been chosen
 	PeerCertificates          [][]byte
 	IdentityHint              []byte
-	SessionID                 []byte
 	NegotiatedProtocol        string
 
 	srtpProtectionProfile         atomic.Uint32 // Negotiated SRTPProtectionProfile

@@ -32,7 +32,6 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	common.RemoteRandom = state.RemoteRandom
 	common.CipherSuite = state.CipherSuite
 	common.IdentityHint = bytes.Clone(state.IdentityHint)
-	common.SessionID = bytes.Clone(state.SessionID)
 	common.NegotiatedProtocol = state.NegotiatedProtocol
 	common.RemoteSRTPMasterKeyIdentifier = bytes.Clone(state.RemoteSRTPMasterKeyIdentifier)
 	common.RemoteConnectionID = bytes.Clone(state.RemoteConnectionID)

@@ -1774,7 +1774,7 @@ func TestConnectionStateDuringHandshake(t *testing.T) {
 			client, err = Client(ca, ca.RemoteAddr(), WithInsecureSkipVerify(true), WithVerifyConnection(func(*State) error {
 				snapshot, ok := client.ConnectionState()
 				assert.True(t, ok)
-				assert.Equal(t, version, snapshot.NegotiatedVersion())
+				assert.Equal(t, version, snapshot.version)
 
 				return nil
 			}))
@@ -2050,7 +2050,6 @@ type earlyDataTestStore struct {
 }
 
 func (s *earlyDataTestStore) Set([]byte, Session) error { return nil }
-func (s *earlyDataTestStore) Del([]byte) error          { return nil }
 
 func (s *earlyDataTestStore) Get([]byte) (Session, error) {
 	s.Lock()
@@ -2080,7 +2079,7 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 	require.NoError(t, err)
 	for _, scenario := range []string{"accepted", "replay", "policy error", "no policy", "retry", "stale age", "expired", "context changed", "reduced limit", "cid", "srtp", earlyDataSRTPChanged, "alpn", "alpn changed", "alpn removed"} {
 		t.Run(scenario, func(t *testing.T) {
-			ticket := Session{Version: 1, IsClient: true, ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, 32), Ticket: &SessionTicket{
+			ticket := Session{IsClient: true, ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, 32), Ticket: &SessionTicket{
 				CipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256, CreatedAt: time.Now().Add(-time.Second),
 				Lifetime: 60, AgeAdd: ^uint32(0), MaxEarlyDataSize: 32, PeerCertificates: certificate.Certificate,
 			}}
