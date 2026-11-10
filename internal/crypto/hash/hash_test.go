@@ -6,23 +6,8 @@ package hash
 import (
 	"testing"
 
-	"github.com/pion/dtls/v4/internal/crypto/fingerprint"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestHashAlgorithm_StringRoundtrip(t *testing.T) {
-	for algo := range Algorithms() {
-		if algo == Ed25519 || algo == None {
-			continue
-		}
-
-		str := algo.String()
-		hash1 := algo.CryptoHash()
-		hash2, err := fingerprint.HashFromString(str)
-		assert.NoError(t, err)
-		assert.Equal(t, hash1, hash2)
-	}
-}
 
 func TestExtractHashFromPSS(t *testing.T) {
 	tests := []struct {

@@ -28,7 +28,6 @@ const (
 	tls13AESGCMTagLen    = 16
 
 	tls13ChaCha20Poly1305KeyLen = chacha20poly1305.KeySize
-	tls13ChaCha20Poly1305TagLen = chacha20poly1305.Overhead
 	tls13ChaCha20BlockLen       = 64
 
 	tls13SequenceNumberMaskSampleLen = 16

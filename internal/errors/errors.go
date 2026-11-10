@@ -243,24 +243,15 @@ var (
 	ErrTicketNonceTooLong                  = stderrors.New("ticket nonce must not be longer than 255 bytes")
 	ErrInvalidTicketLength                 = stderrors.New("ticket must be between 1 and 65535 bytes")
 
-	ErrInvalidPacketLength        = stderrors.New("packet length and declared length do not match")
-	ErrInvalidProtectionInput     = stderrors.New("invalid record protection input")
-	ErrInvalidCiphertextHeader    = stderrors.New("invalid dtls ciphertext header")
-	ErrInvalidEpoch               = stderrors.New("invalid epoch")
-	ErrCIDTooBig                  = stderrors.New("connection ID size is too big")
-	ErrInvalidUnifiedHeaderFormat = stderrors.New("invalid dtls 1.3 unified header format")
-	ErrAntiAmplificationLimit     = stderrors.New("return routability check anti-amplification limit exceeded")
+	ErrInvalidPacketLength     = stderrors.New("packet length and declared length do not match")
+	ErrInvalidProtectionInput  = stderrors.New("invalid record protection input")
+	ErrInvalidCiphertextHeader = stderrors.New("invalid dtls ciphertext header")
+	ErrInvalidEpoch            = stderrors.New("invalid epoch")
+	ErrCIDTooBig               = stderrors.New("connection ID size is too big")
+	ErrAntiAmplificationLimit  = stderrors.New("return routability check anti-amplification limit exceeded")
 
-	ErrCipherSuiteNotInit    = stderrors.New("CipherSuite has not been initialized")
-	ErrNotEnoughRoomForNonce = stderrors.New("buffer not long enough to contain nonce")
-	ErrDecryptPacket         = stderrors.New("failed to decrypt packet")
-	ErrInvalidMAC            = stderrors.New("invalid mac")
-
-	ErrFingerprintHashUnavailable = stderrors.New(
-		"fingerprint: hash algorithm is not linked into the binary",
-	)
-	ErrFingerprintInvalidLength        = stderrors.New("fingerprint: invalid fingerprint length")
-	ErrFingerprintInvalidHashAlgorithm = stderrors.New("fingerprint: invalid hash algorithm")
+	ErrCipherSuiteNotInit = stderrors.New("CipherSuite has not been initialized")
+	ErrDecryptPacket      = stderrors.New("failed to decrypt packet")
 
 	ErrKeyScheduleMissingHashFunction = stderrors.New(
 		"HKDF-Extract expected a non-nil hash function",

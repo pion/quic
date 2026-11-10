@@ -68,11 +68,10 @@ type postHandshakeCategory uint8
 // rfc9147 section 5.8.4
 // https://datatracker.ietf.org/doc/html/rfc9147#section-5.8.4
 const (
-	postHandshakeNewSessionTicket     postHandshakeCategory = iota //nolint:unused
-	postHandshakeKeyUpdate                                         //nolint:unused
-	postHandshakeNewConnectionID                                   //nolint:unused
-	postHandshakeRequestConnectionID                               //nolint:unused
-	postHandshakeClientAuthentication                              //nolint:unused
+	postHandshakeNewSessionTicket    postHandshakeCategory = iota //nolint:unused
+	postHandshakeKeyUpdate                                        //nolint:unused
+	postHandshakeNewConnectionID                                  //nolint:unused
+	postHandshakeRequestConnectionID                              //nolint:unused
 )
 
 type postHandshakeFlightID struct {

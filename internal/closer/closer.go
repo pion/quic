@@ -25,16 +25,6 @@ func NewCloser() *Closer {
 	}
 }
 
-// NewCloserWithParent creates a new instance of Closer with a parent context.
-func NewCloserWithParent(ctx context.Context) *Closer {
-	ctx, closeFunc := context.WithCancel(ctx)
-
-	return &Closer{
-		ctx:       ctx,
-		closeFunc: closeFunc,
-	}
-}
-
 // Done returns a channel signaling when it is done.
 func (c *Closer) Done() <-chan struct{} {
 	return c.ctx.Done()
