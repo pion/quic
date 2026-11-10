@@ -47,7 +47,6 @@ func TestServerECHNegotiation(t *testing.T) {
 	flightCtx.cfg.InsecureSkipHelloVerify = true
 	flightCtx.cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{flightCtx.state.CipherSuite}
 	flightCtx.cfg.EllipticCurves = []elliptic.Curve{elliptic.X25519}
-	flightCtx.state.LocalVersion = protocol.Version1_3
 	flightCtx.cache = dtlsflight.NewCache()
 	hello := &handshake.MessageClientHello{
 		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(flightCtx.state.CipherSuite.ID())}, CompressionMethods: dtlsflight.DefaultCompressionMethods(),

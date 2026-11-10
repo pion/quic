@@ -150,8 +150,8 @@ func TestResume(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, exported, actual)
 				if test.version == protocol.Version1_3 {
-					state, is13 := resumedServer.state.(*dtlsstate.State13)
-					require.True(t, is13)
+					state := resumedServer.state
+					require.NotNil(t, state)
 					for epoch, cutoff := range state.ReplayCutoff {
 						_, accepted := resumedServer.replayMarker(epoch, cutoff, ^uint64(0))
 						require.False(t, accepted, "previously received records must remain rejected")

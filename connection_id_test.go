@@ -176,7 +176,7 @@ func TestConnectionIDPreflight(t *testing.T) {
 	cid := []byte("own-cid!")
 	state13 := dtlsstate.NewState13(false)
 	state13.CommitNegotiatedExtensions(&negotiation.ConnectionID{ServerCID: cid})
-	for versionName, state := range map[string]dtlsstate.Active{"DTLS13": &state13} {
+	for versionName, state := range map[string]*dtlsstate.State13{"DTLS13": &state13} {
 		t.Run(versionName, func(t *testing.T) {
 			conn := &Conn{state: state}
 			own := marshalCIDPreflightRecord(t, cid)
@@ -217,8 +217,8 @@ func marshalCIDPreflightRecord(t *testing.T, cid []byte) []byte {
 
 func pendingCIDTestOffer(t *testing.T, conn *Conn) (*dtlsstate.State13, *dtlsstate.TrafficKeyState) {
 	t.Helper()
-	state, err := dtlsstate.As13(conn.state)
-	assert.NoError(t, err)
+	state := conn.state
+	assert.NotNil(t, state)
 	trafficKeys := state.TrafficKeys
 	state.TrafficKeys = nil
 	state.SetRemoteEpoch(dtlsflight13.EpochInitial)

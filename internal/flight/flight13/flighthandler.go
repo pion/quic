@@ -339,9 +339,6 @@ func selectServerHelloCipherSuite(serverHello *handshake.MessageServerHello, cfg
 	if !found {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection
 	}
-	if !selectedCipherSuite.Capabilities().SupportsVersion(protocol.Version1_3) {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
-	}
 
 	return selectedCipherSuite, nil, nil
 }

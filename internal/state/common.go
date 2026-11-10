@@ -15,7 +15,6 @@ import (
 	"github.com/pion/dtls/v4/internal/crypto/elliptic"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/negotiation"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
 	"github.com/pion/dtls/v4/internal/protocol/handshake"
 	"github.com/pion/transport/v5/replaydetector"
@@ -72,11 +71,6 @@ type Common struct {
 	ReplayDetector map[uint64]replaydetector.ReplayDetector
 
 	PeerSupportedProtocols []string
-
-	// LocalVersion is the DTLS version we intend to speak on this connection.
-	LocalVersion protocol.Version
-	// RemoteVersions are the DTLS versions advertised by the peer.
-	RemoteVersions []protocol.Version
 
 	// ClientHello snapshots are transient negotiation state.
 	// they aren't serialized with resumable connection state.
@@ -269,21 +263,9 @@ func (s *Common) ConnectionIDPending() bool {
 	return s.IsClient && s.pendingLocalConnectionID.Load() != nil
 }
 
-// CommonFields returns the embedded common state.
-func (s *State13) CommonFields() *Common {
-	if s == nil {
-		return nil
-	}
-
-	return s.Common
-}
-
 // NewState13 creates DTLS 1.3 state with initialized common fields.
 func NewState13(isClient bool) State13 {
-	common := &Common{
-		IsClient:     isClient,
-		LocalVersion: protocol.Version1_3,
-	}
+	common := &Common{IsClient: isClient}
 
 	return State13{Common: common, LocalKeypairs: make(map[elliptic.Curve]*elliptic.Keypair), TrafficKeys: &TrafficKeyState{}}
 }

@@ -870,23 +870,10 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersions
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidSupportedVersionsFormat)
 }
 
-func TestFlight13_3GenerateRejectsWithoutCommonVersion(t *testing.T) {
-	cfg := testHandshakeConfig13(t)
-	state := newTestState13(t, false)
-	require.NoError(t, state.LocalRandom.Populate())
-
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeTestContext13{state: state, cfg: cfg})
-
-	require.ErrorIs(t, err, dtlserrors.ErrNoCommonProtocolVersion)
-	require.Nil(t, dtlsAlert)
-	require.Nil(t, pkts)
-}
-
 func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := newTestState13(t, false)
 	state.Cookie = []byte{0x01, 0x02, 0x03, 0x04}
-	state.RemoteVersions = []protocol.Version{protocol.Version1_3}
 	state.HelloRetryRequest = retryRequestForTest(
 		t, state, cfg, state.LocalClientHelloSnapshots.Initial(), 0,
 	)
@@ -946,7 +933,6 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 	selectedGroup := elliptic.P384
 
 	state := newTestState13(t, false)
-	state.RemoteVersions = []protocol.Version{protocol.Version1_3}
 	state.HelloRetryRequest = retryRequestForTest(
 		t, state, cfg, state.LocalClientHelloSnapshots.Initial(), selectedGroup,
 	)
@@ -1039,8 +1025,6 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, dtlsflight13.Flight5, nextFlight)
 
-	assert.Equal(t, protocol.Version1_3, state.LocalVersion)
-	assert.Equal(t, []protocol.Version{protocol.Version1_3}, state.RemoteVersions)
 	require.NotNil(t, state.CipherSuite)
 	assert.Equal(t, cfg.LocalCipherSuites[0].ID(), state.CipherSuite.ID())
 	assert.Equal(t, group, state.SelectedGroup)
@@ -1085,10 +1069,10 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 	cfg := testHandshakeConfig13(t)
 	configureTestPSK13(cfg)
 	cache := dtlsflight.NewCache()
-	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
+	commonState := &dtlsstate.Common{IsClient: true}
 	conn := &Conn{fragmentBuffer: dtlsfragmentbuffer.New(), handshakeCache: cache, maximumTransmissionUnit: defaultMTU, replayProtectionWindow: defaultReplayProtectionWindow, log: logging.NewDefaultLoggerFactory().NewLogger("dtls"), state: &dtlsstate.State13{Common: commonState}}
-	state, err := dtlsstate.As13(conn.state)
-	require.NoError(t, err)
+	state := conn.state
+	require.NotNil(t, state)
 	transcript := dtlshandshake.NewTranscript()
 
 	clientHello, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg})
@@ -2797,7 +2781,7 @@ func TestFlight13_3GenerateConnectionIDOffer(t *testing.T) { //nolint:cyclop // 
 			require.Nil(t, dtlsAlert)
 			require.Len(t, firstFlight, 1)
 			initialSnapshot := state.LocalClientHelloSnapshots.Current()
-			state.RemoteVersions, state.Cookie = []protocol.Version{protocol.Version1_3}, []byte{0xaa}
+			state.Cookie = []byte{0xaa}
 			state.HelloRetryRequest = retryRequestForTest(t, state, cfg, initialSnapshot, 0)
 
 			secondFlight, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeTestContext13{state: state, cfg: cfg})

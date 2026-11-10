@@ -134,10 +134,7 @@ func (c *flightTestConn) SessionKey() []byte {
 // newFSM13AfterClientHello returns a client FSM that has already sent pkts,
 // with the ClientHello in its transcript and pkts pending retransmission.
 func newFSM13AfterClientHello(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, pkts []*dtlsflight.Outbound, transcript *Transcript) (*fsm13, error) {
-	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, transcript)
-	if err != nil {
-		return nil, err
-	}
+	fsm := newFSM13(state, cache, cfg, dtlsflight13.Flight1, transcript)
 	fsm.flights, fsm.retransmit = pkts, true
 	fsm.prepareFlightACKTracking(pkts, true)
 	appended, err := AppendClientHelloInitialFlights(fsm.transcript, pkts)
@@ -236,8 +233,7 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
-	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, nil)
-	require.NoError(t, err)
+	fsm := newFSM13(state, cache, cfg, dtlsflight13.Flight1, nil)
 	require.NotNil(t, fsm.transcript)
 
 	flightCtx := fsm.flightContext()
@@ -302,8 +298,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 	state.Cookie = []byte{0x01}
 	cache := dtlsflight.NewCache()
 
-	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight2, nil)
-	require.NoError(t, err)
+	fsm := newFSM13(state, cache, cfg, dtlsflight13.Flight2, nil)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
@@ -319,8 +314,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 	state := newTestState13(t, true)
 	cache := dtlsflight.NewCache()
 
-	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, nil)
-	require.NoError(t, err)
+	fsm := newFSM13(state, cache, cfg, dtlsflight13.Flight1, nil)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
 	require.NoError(t, err)
@@ -346,8 +340,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
 	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{clientHello}))
 
-	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight2, transcript)
-	require.NoError(t, err)
+	fsm := newFSM13(state, cache, cfg, dtlsflight13.Flight2, transcript)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
 	require.NoError(t, err)
@@ -382,8 +375,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
 	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{clientHello}))
 
-	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight4, transcript)
-	require.NoError(t, err)
+	fsm := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight4, transcript)
 	transcriptBeforeFlight4, err := transcript.clone()
 	require.NoError(t, err)
 
@@ -449,8 +441,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 
 func TestHandshakeFSM13SendsFlight4ProtectedRecords(t *testing.T) {
 	fixture := newNoHRRFlight13Fixture(t)
-	fsm, err := newFSM13(fixture.serverState, dtlsflight.NewCache(), fixture.cfg, dtlsflight13.Flight4, fixture.transcript)
-	require.NoError(t, err)
+	fsm := newFSM13(fixture.serverState, dtlsflight.NewCache(), fixture.cfg, dtlsflight13.Flight4, fixture.transcript)
 
 	conn := &flightTestConn{}
 	nextState, err := fsm.prepare(context.Background(), conn)
@@ -479,8 +470,7 @@ func TestHandshakeFSM13ServerFlight4KeepsReaderPausedThroughQueueDrain(t *testin
 	_, clientHello, _ := newFlight13ClientHelloFixture(t, cfg)
 	serverState := newTestState13(t, false)
 	cache := dtlsflight.NewCache()
-	fsm, err := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil)
-	require.NoError(t, err)
+	fsm := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil)
 	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
 
 	nextState, err := fsm.prepare(context.Background(), conn)
@@ -536,8 +526,7 @@ func TestHandshakeFSM13NonDrainingTransitionReleasesReaderAfterWait(t *testing.T
 	_, clientHello, _ := newFlight13ClientHelloFixture(t, cfg)
 	serverState := newTestState13(t, false)
 	cache := dtlsflight.NewCache()
-	fsm, err := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil)
-	require.NoError(t, err)
+	fsm := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil)
 	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
 
 	nextState, err := fsm.prepare(context.Background(), conn)
@@ -602,8 +591,7 @@ func TestHandshakeFSM13ServerFlight4RequiresCertificate(t *testing.T) {
 	fixture.cfg.LocalCertificates = nil
 	require.Empty(t, fixture.cfg.LocalCertificates)
 
-	fsm, err := newFSM13(fixture.serverState, dtlsflight.NewCache(), fixture.cfg, dtlsflight13.Flight4, fixture.transcript)
-	require.NoError(t, err)
+	fsm := newFSM13(fixture.serverState, dtlsflight.NewCache(), fixture.cfg, dtlsflight13.Flight4, fixture.transcript)
 
 	nextState, err := fsm.prepare(context.Background(), &flightTestConn{})
 	require.ErrorIs(t, err, dtlserrors.ErrNoCertificates)
@@ -615,13 +603,12 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	pushFlight13HandshakePacketsToCache(t, cache, fixture.serverFlight4, false)
 
-	fsm, err := newFSM13(
+	fsm := newFSM13(
 		fixture.clientState,
 		cache,
 		fixture.cfg,
 		dtlsflight13.Flight3,
 		fixture.transcript)
-	require.NoError(t, err)
 
 	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
 	conn.handleQueuedPackets = func(context.Context) error {
@@ -1101,13 +1088,12 @@ func TestHandshakeFSM13ServerRejectsTamperedClientFinished(t *testing.T) {
 	transcriptBefore := append([]byte(nil), serverTranscript.Bytes()...)
 	cache := dtlsflight.NewCache()
 	cache.Push(rawFinished, dtlsflight13.EpochHandshake, finishedHandshake.Header.MessageSequence, handshake.TypeFinished, true)
-	serverFSM, err := newFSM13(
+	serverFSM := newFSM13(
 		fixture.serverState,
 		cache,
 		fixture.cfg,
 		dtlsflight13.Flight4,
 		serverTranscript)
-	require.NoError(t, err)
 	conn := &postHandshakeAlertConn{
 		flightTestConn: flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)},
 	}
@@ -1225,13 +1211,12 @@ func serverFSMForClientFlight13(t *testing.T, fixture noHRRFlight13Fixture, clie
 	for range cacheCopies {
 		pushFlight13HandshakePacketsToCache(t, cache, clientFlight, true)
 	}
-	fsm, err := newFSM13(
+	fsm := newFSM13(
 		fixture.serverState,
 		cache,
 		fixture.cfg,
 		dtlsflight13.Flight4,
 		transcript)
-	require.NoError(t, err)
 
 	return fsm
 }
@@ -1265,13 +1250,12 @@ func clientFSMThroughServerFlight13(t *testing.T, fixture noHRRFlight13Fixture) 
 
 	cache := dtlsflight.NewCache()
 	pushFlight13HandshakePacketsToCache(t, cache, fixture.serverFlight4, false)
-	fsm, err := newFSM13(
+	fsm := newFSM13(
 		fixture.clientState,
 		cache,
 		fixture.cfg,
 		dtlsflight13.Flight3,
 		fixture.transcript)
-	require.NoError(t, err)
 
 	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
 	recvState := RecvHandshakeState{Done: make(chan struct{})}
@@ -1369,8 +1353,7 @@ func newNoHRRFlight13Fixture(t *testing.T, configure ...func(*dtlsconfig.Handsha
 
 	serverTranscript := NewTranscript()
 	require.NoError(t, AppendOutboundHandshakeFlight(serverTranscript, true, nil, clientHello))
-	serverFSM, err := newFSM13(serverState, serverCache, cfg, dtlsflight13.Flight4, serverTranscript)
-	require.NoError(t, err)
+	serverFSM := newFSM13(serverState, serverCache, cfg, dtlsflight13.Flight4, serverTranscript)
 	nextState, err := serverFSM.prepare(context.Background(), &flightTestConn{})
 	require.NoError(t, err)
 	require.Equal(t, StateSending, nextState)
@@ -1604,7 +1587,7 @@ func TestECHAuthenticatedRejection(t *testing.T) {
 
 					return nil
 				}
-				cfg.VerifyConnection = func(dtlsstate.Active) error {
+				cfg.VerifyConnection = func(*dtlsstate.State13) error {
 					require.FailNow(t, "normal connection callback on rejection")
 
 					return nil
@@ -1630,8 +1613,7 @@ func TestECHAuthenticatedRejection(t *testing.T) {
 			}
 			cache := dtlsflight.NewCache()
 			pushFlight13HandshakePacketsToCache(t, cache, fixture.serverFlight4, false)
-			fsm, err := newFSM13(fixture.clientState, cache, fixture.cfg, dtlsflight13.Flight3, fixture.transcript)
-			require.NoError(t, err)
+			fsm := newFSM13(fixture.clientState, cache, fixture.cfg, dtlsflight13.Flight3, fixture.transcript)
 			conn := &postHandshakeAlertConn{}
 			next, err := fsm.parseReceivedFlight(t.Context(), conn, dtlsflight13.Flight3)
 			if test.fail {

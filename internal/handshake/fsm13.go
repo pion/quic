@@ -90,15 +90,14 @@ type fsm13 struct {
 	received      recvHandshakeLease // keeps the reader paused across a prepare/send transition
 }
 
-func NewFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, establishment *Establishment) (FSM, error) {
-	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, nil, establishment)
+func NewFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, establishment *Establishment) FSM {
+	fsm := newFSM13(state, cache, cfg, initialFlight, nil)
+	fsm.establishment = establishment
+
+	return fsm
 }
 
-func newFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialTranscript *Transcript) (*fsm13, error) {
-	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialTranscript, NewEstablishment())
-}
-
-func newFSM13WithEstablishment(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialTranscript *Transcript, establishment *Establishment) (*fsm13, error) {
+func newFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialTranscript *Transcript) *fsm13 {
 	if initialTranscript == nil {
 		initialTranscript = NewTranscript()
 	}
@@ -108,11 +107,11 @@ func newFSM13WithEstablishment(state *dtlsstate.State13, cache *dtlsflight.Cache
 		handshakeContext:   handshakeContext{state: state, cache: cache, cfg: cfg, transcript: initialTranscript},
 		retransmitInterval: cfg.InitialRetransmitInterval,
 		closed:             make(chan struct{}),
-		establishment:      establishment,
+		establishment:      NewEstablishment(),
 		postHandshake:      newPostHandshake(handshakeContext{state: state, cache: cache, cfg: cfg, transcript: initialTranscript}),
 	}
 
-	return fsm, nil
+	return fsm
 }
 
 func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) (err error) {
@@ -124,41 +123,33 @@ func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) (err err
 		}
 	}()
 
-	err = runHandshakeFSM(
-		ctx,
-		conn,
-		initialState,
-		s.closed,
-		s.establishment,
-		func(state State) {
-			s.cfg.Log.Tracef(
-				"[handshake13:%s] %s: %s",
-				sideString(s.state.IsClient),
-				s.currentFlight.String(),
-				state.String(),
-			)
-		},
-		s.prepare,
-		s.send,
-		s.wait,
-		s.finish,
-	)
+	// Registered last so the FSM reports closed before the deferred cleanup above.
+	defer close(s.closed)
 
-	return err
+	state := initialState
+	for {
+		s.cfg.Log.Tracef("[handshake13:%s] %s: %s", sideString(s.state.IsClient), s.currentFlight.String(), state.String())
+		switch state {
+		case StatePreparing:
+			state, err = s.prepare(ctx, conn)
+		case StateSending:
+			state, err = s.send(ctx, conn)
+		case StateWaiting:
+			state, err = s.wait(ctx, conn)
+		case StateFinished:
+			s.establishment.mark()
+			state, err = s.finish(ctx, conn)
+		default:
+			return dtlserrors.ErrInvalidFSMTransition
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func (s *fsm13) Done() <-chan struct{} {
 	return s.closed
-}
-
-type KeyUpdater interface {
-	UpdateKeys(context.Context, handshake.KeyUpdateRequest) error
-}
-
-// ConnectionIDUpdater advertises local receive IDs and requests peer IDs.
-type ConnectionIDUpdater interface {
-	SendConnectionIDs(context.Context, uint8, handshake.ConnectionIDUsage) error
-	RequestConnectionIDs(context.Context, uint8) error
 }
 
 // RequestConnectionIDs waits for both the request ACK and a spare CID response.
@@ -173,12 +164,6 @@ func (s *fsm13) SendConnectionIDs(ctx context.Context, count uint8, usage handsh
 		Kind:            commandSendNewConnectionID,
 		NewConnectionID: newConnectionIDCommand{NumCIDs: count, Usage: usage},
 	})
-}
-
-// ApplicationDataWriter serializes DTLS 1.3 application data with
-// post-handshake messages.
-type ApplicationDataWriter interface {
-	WriteApplicationData(context.Context, []*dtlsflight.Outbound) error
 }
 
 // WriteApplicationData queues application records on the post-handshake state

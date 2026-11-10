@@ -227,7 +227,6 @@ func parseHelloRetryRequest(flightCtx *handshakeContext, sh *handshake.MessageSe
 	}
 	state.CipherSuite = selectedCipherSuite
 	state.HelloRetryRequest = retryRequest
-	state.RemoteVersions = []protocol.Version{protocol.Version1_3}
 
 	if flightCtx.inboundHandshakeHandler != nil {
 		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, pull.Items); err != nil {

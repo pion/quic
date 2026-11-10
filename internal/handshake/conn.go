@@ -9,6 +9,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
+	"github.com/pion/dtls/v4/internal/protocol/handshake"
 )
 
 // RecvHandshakeState signals that a handshake packet has been received.
@@ -74,10 +75,16 @@ func (l *recvHandshakeLease) release() {
 	l.done = nil
 }
 
-// FSM is the common DTLS handshake FSM interface.
+// FSM is the DTLS 1.3 handshake FSM, including its post-handshake operations.
 type FSM interface {
 	Done() <-chan struct{}
 	Run(ctx context.Context, conn Conn, initialState State) error
+	// UpdateKeys sends a KeyUpdate and waits until its ACK commits the next keys.
+	UpdateKeys(context.Context, handshake.KeyUpdateRequest) error
+	// RequestConnectionIDs waits for both the request ACK and a spare CID response.
+	RequestConnectionIDs(context.Context, uint8) error
+	// WriteApplicationData serializes application data with post-handshake messages.
+	WriteApplicationData(context.Context, []*dtlsflight.Outbound) error
 }
 
 // Conn is the connection surface required by the DTLS handshake FSMs.

@@ -98,7 +98,7 @@ type HandshakeConfig struct {
 	ECHConfigList      []byte
 	ECHKeys            []ech.Key
 	GetECHKeys         func(*ClientHelloInfo) ([]ech.Key, error)
-	ECHRejectionVerify func(internalstate.Active) error
+	ECHRejectionVerify func(*internalstate.State13) error
 	PSKIdentityLimit   int
 	// SelectPSK returns the selected offer index, key, and hash, or a nil key if none match.
 	SelectPSK                     func(identities [][]byte) (index int, key []byte, hash crypto.Hash, err error)
@@ -114,7 +114,7 @@ type HandshakeConfig struct {
 	LocalCertificates             []tls.Certificate
 	InsecureSkipVerify            bool
 	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
-	VerifyConnection              func(internalstate.Active) error
+	VerifyConnection              func(*internalstate.State13) error
 	MaxEarlyDataSize              uint32
 	EnableEarlyData               bool
 	ClaimEarlyData                func(ticket []byte, expiresAt time.Time) (bool, error)
@@ -138,7 +138,7 @@ type HandshakeConfig struct {
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook func(handshake.Message) handshake.Message
-	ResumeState                   internalstate.Active
+	ResumeState                   *internalstate.State13
 	TimerFactory                  func(time.Duration) Timer
 
 	nameToCertificate map[string]*tls.Certificate

@@ -100,28 +100,21 @@ func testKeyLogHandshake(t *testing.T, certificate tls.Certificate, suite crypto
 	assertKeyLog(t, client.conn.state, clientLog.String(), serverLog.String(), scenario)
 }
 
-func assertKeyLog(t *testing.T, state dtlsstate.Active, clientLog, serverLog, scenario string) {
+func assertKeyLog(t *testing.T, clientState *dtlsstate.State13, clientLog, serverLog, scenario string) {
 	t.Helper()
-	var random [32]byte
-	var expected map[string][]byte
-	var hashSize int
-	switch clientState := state.(type) {
-	case *dtlsstate.State13:
-		random = clientState.LocalRandom.MarshalFixed()
-		hashSize = clientState.CipherSuite.HashFunc()().Size()
-		if scenario == "resumed" || scenario == keyLogEarlyData {
-			require.NotEmpty(t, clientState.PSK)
-		}
-		secrets := clientState.KeySchedule
-		expected = map[string][]byte{
-			"CLIENT_HANDSHAKE_TRAFFIC_SECRET": secrets.HandshakeTraffic.Client,
-			"SERVER_HANDSHAKE_TRAFFIC_SECRET": secrets.HandshakeTraffic.Server,
-			"CLIENT_TRAFFIC_SECRET_0":         secrets.ClientApplicationTrafficSecret0,
-			"SERVER_TRAFFIC_SECRET_0":         secrets.ServerApplicationTrafficSecret0,
-			"EXPORTER_SECRET":                 secrets.ExporterMasterSecret,
-		}
-	default:
-		require.FailNow(t, "unexpected state", "%T", state)
+	require.NotNil(t, clientState)
+	random := clientState.LocalRandom.MarshalFixed()
+	hashSize := clientState.CipherSuite.HashFunc()().Size()
+	if scenario == "resumed" || scenario == keyLogEarlyData {
+		require.NotEmpty(t, clientState.PSK)
+	}
+	secrets := clientState.KeySchedule
+	expected := map[string][]byte{
+		"CLIENT_HANDSHAKE_TRAFFIC_SECRET": secrets.HandshakeTraffic.Client,
+		"SERVER_HANDSHAKE_TRAFFIC_SECRET": secrets.HandshakeTraffic.Server,
+		"CLIENT_TRAFFIC_SECRET_0":         secrets.ClientApplicationTrafficSecret0,
+		"SERVER_TRAFFIC_SECRET_0":         secrets.ServerApplicationTrafficSecret0,
+		"EXPORTER_SECRET":                 secrets.ExporterMasterSecret,
 	}
 	early := scenario == keyLogEarlyData
 	clientLines := strings.Split(strings.TrimSpace(clientLog), "\n")

@@ -771,12 +771,12 @@ func cipherSuiteFIPSApproved(id cryptosuite.ID) bool {
 	return id != cryptosuite.TLS_CHACHA20_POLY1305_SHA256
 }
 
-func adaptVerifyConnection(verifyConnection func(*State) error) func(dtlsstate.Active) error {
+func adaptVerifyConnection(verifyConnection func(*State) error) func(*dtlsstate.State13) error {
 	if verifyConnection == nil {
 		return nil
 	}
 
-	return func(state dtlsstate.Active) error {
+	return func(state *dtlsstate.State13) error {
 		stateSnapshot, err := generateState(state)
 		if err != nil {
 			return err
@@ -827,7 +827,7 @@ func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo
 	}
 }
 
-func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState dtlsstate.Active) *dtlsconfig.HandshakeConfig {
+func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState *dtlsstate.State13) *dtlsconfig.HandshakeConfig {
 	handshakeConfig := &dtlsconfig.HandshakeConfig{
 		ECHConfigList:                 bytes.Clone(config.echConfigList),
 		ECHKeys:                       config.echKeys,

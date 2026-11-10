@@ -26,9 +26,6 @@ func flight0Parse(
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
 
-	if state.LocalVersion != protocol.Version1_3 {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidProtocolVersionState
-	}
 	pull := cache.FullPullMapItems(0,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
 	)
@@ -81,7 +78,7 @@ func negotiateInitialClientHello(flightCtx *handshakeContext, clientHello *hands
 		if id == renegotiationInfoSCSV {
 			continue
 		}
-		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found && c.Capabilities().SupportsVersion(protocol.Version1_3) {
+		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found {
 			cipherSuites = append(cipherSuites, c)
 		}
 	}

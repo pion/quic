@@ -242,8 +242,8 @@ func (c *DetachedConn) WriteEarlyData(data []byte) (int, error) {
 	if err := c.currentError(); err != nil {
 		return 0, err
 	}
-	state, ok := c.conn.state.(*dtlsstate.State13)
-	if !ok || !state.IsClient || state.EarlyDataStatus != dtlsstate.EarlyDataReady || state.LocalEpoch() >= dtlsflight13.EpochHandshake {
+	state := c.conn.state
+	if state == nil || !state.IsClient || state.EarlyDataStatus != dtlsstate.EarlyDataReady || state.LocalEpoch() >= dtlsflight13.EpochHandshake {
 		return 0, dtlserrors.ErrHandshakeInProgress
 	}
 	if uint64(len(data)) > uint64(state.EarlyDataLimit)-state.EarlyDataBytes {
@@ -347,7 +347,7 @@ func (c *DetachedConn) markQuiescent() {
 	c.publishEarlyDataStatus()
 	c.eventMu.Lock()
 	if c.conn.isHandshakeCompletedSuccessfully() && c.established.CompareAndSwap(false, true) {
-		if state, ok := c.conn.state.(*dtlsstate.State13); ok && state.TrafficKeys != nil {
+		if state := c.conn.state; state != nil && state.TrafficKeys != nil {
 			state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
 		}
 		c.publishEventLocked(DetachedEvent{Kind: DetachedHandshakeDone})
@@ -452,7 +452,7 @@ func (t *detachedTimer) Stop() {
 }
 
 func (c *DetachedConn) publishEarlyDataStatus() {
-	if state, ok := c.conn.state.(*dtlsstate.State13); ok && state.IsClient && state.EarlyDataStatus != c.earlyDataStatus {
+	if state := c.conn.state; state != nil && state.IsClient && state.EarlyDataStatus != c.earlyDataStatus {
 		c.earlyDataStatus = state.EarlyDataStatus
 		kind := map[dtlsstate.EarlyDataStatus]DetachedEventKind{
 			dtlsstate.EarlyDataReady:    DetachedEarlyDataReady,

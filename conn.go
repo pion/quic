@@ -195,7 +195,7 @@ type Conn struct {
 	pendingCIDACKs map[protocol.RecordNumber]uint16
 	decrypted      chan any // Decrypted Application Data or error, pull by calling `Read`
 	rAddr          net.Addr
-	state          dtlsstate.Active // active DTLS version state
+	state          *dtlsstate.State13 // active DTLS version state
 
 	maximumTransmissionUnit int
 	paddingLengthGenerator  func(uint) uint
@@ -243,7 +243,7 @@ type Conn struct {
 
 // createConn creates a new DTLS connection.
 // Caller is responsible for validating the config before calling this function.
-func createConn(nextConn net.PacketConn, rAddr net.Addr, config *dtlsConfig, isClient bool, resumeState dtlsstate.Active) (*Conn, error) {
+func createConn(nextConn net.PacketConn, rAddr net.Addr, config *dtlsConfig, isClient bool, resumeState *dtlsstate.State13) (*Conn, error) {
 	if nextConn == nil {
 		return nil, dtlserrors.ErrNilNextConn
 	}
@@ -292,7 +292,7 @@ func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigVal
 	}
 	dtlsstate.CommonState(conn.state).ServerName = handshakeConfig.ServerName
 	if verify := handshakeConfig.VerifyConnection; verify != nil {
-		handshakeConfig.VerifyConnection = func(state dtlsstate.Active) error {
+		handshakeConfig.VerifyConnection = func(state *dtlsstate.State13) error {
 			conn.publishHandshakeState()
 
 			return verify(state)
@@ -411,7 +411,6 @@ func (c *Conn) prepareHandshakeStart() (handshakeStart, error) {
 
 	state := dtlsstate.Activate13(c.state)
 	c.state = state
-	state.LocalVersion = protocol.Version1_3
 	if state.IsClient {
 		return handshakeStart{flight: dtlsflight13.Flight1, fsmState: dtlshandshake.StatePreparing}, nil
 	}
@@ -644,7 +643,7 @@ func (c *Conn) UpdateKeys(ctx context.Context, options KeyUpdateOptions) error {
 	return c.normalizeKeyUpdateError(ctx, operationCtx, updater.UpdateKeys(operationCtx, request))
 }
 
-func (c *Conn) keyUpdateFSM(ctx context.Context) (dtlshandshake.KeyUpdater, error) {
+func (c *Conn) keyUpdateFSM(ctx context.Context) (dtlshandshake.FSM, error) {
 	if c.isConnectionClosed() {
 		return nil, ErrConnClosed
 	}
@@ -656,12 +655,11 @@ func (c *Conn) keyUpdateFSM(ctx context.Context) (dtlshandshake.KeyUpdater, erro
 	if err := c.HandshakeContext(ctx); err != nil {
 		return nil, err
 	}
-	updater, ok := c.fsm.(dtlshandshake.KeyUpdater)
-	if !ok {
+	if c.fsm == nil {
 		return nil, dtlserrors.ErrInvalidInternalState
 	}
 
-	return updater, nil
+	return c.fsm, nil
 }
 
 func (c *Conn) normalizeKeyUpdateError(ctx, operationCtx context.Context, err error) error {
@@ -680,12 +678,11 @@ func (c *Conn) normalizeKeyUpdateError(ctx, operationCtx context.Context, err er
 }
 
 func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Outbound) error {
-	writer, ok := c.fsm.(dtlshandshake.ApplicationDataWriter)
-	if !ok {
+	if c.fsm == nil {
 		return dtlserrors.ErrInvalidInternalState
 	}
 
-	return writer.WriteApplicationData(ctx, pkts)
+	return c.fsm.WriteApplicationData(ctx, pkts)
 }
 
 // Close closes the connection.
@@ -732,7 +729,7 @@ func (c *Conn) ConnectionState() (State, bool) {
 	if err != nil {
 		return State{}, false
 	}
-	if state13, ok := c.state.(*dtlsstate.State13); ok && c.handshakeEstablished != nil && c.isHandshakeCompletedSuccessfully() {
+	if state13 := c.state; state13 != nil && c.handshakeEstablished != nil && c.isHandshakeCompletedSuccessfully() {
 		state.state13 = snapshotState13(state13)
 	}
 
@@ -1079,7 +1076,7 @@ func (c *Conn) allocateLocalSequenceNumber(epoch uint64) (uint64, error) {
 		return 0, ErrConnClosed
 	}
 	common := dtlsstate.CommonState(c.state)
-	if state, ok := c.state.(*dtlsstate.State13); ok && state.TrafficKeys != nil {
+	if state := c.state; state != nil && state.TrafficKeys != nil {
 		common.RetainTrafficCounters(state.TrafficKeys)
 	}
 
@@ -1170,9 +1167,6 @@ func (c *Conn) sealRecordContentWithPadding(epoch, seq uint64, contentType proto
 	if err != nil {
 		return nil, err
 	}
-	if !capabilities.SupportsVersion(protocol.Version1_3) {
-		return nil, cryptosuite.ErrInvalidCapabilities
-	}
 	innerPlaintext, protectedLen, sampleLen, err := padUnifiedPlaintext(capabilities, innerPlaintext, plaintext, contentType, padding)
 	if err != nil {
 		return nil, err
@@ -1183,7 +1177,7 @@ func (c *Conn) sealRecordContentWithPadding(epoch, seq uint64, contentType proto
 
 func (c *Conn) unifiedRecordHeader(epoch, seq uint64) recordlayer.CiphertextConfig {
 	header := recordlayer.CiphertextConfig{EpochLow: uint8(epoch & 0x3), SequenceNumber: uint16(seq & 0xffff), TwoByteSequence: true, LengthPresent: true}
-	if state13, ok := c.state.(*dtlsstate.State13); ok &&
+	if state13 := c.state; state13 != nil &&
 		state13.CID.Negotiated && state13.CID.Send.UseCID {
 		header.ConnectionID = bytes.Clone(state13.CID.Send.Active)
 	}
@@ -1304,8 +1298,8 @@ func applySequenceNumberMask(
 }
 
 func (c *Conn) writeTrafficGeneration(epoch uint64) (*dtlsstate.TrafficGeneration, error) {
-	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok {
+	state13 := c.state
+	if state13 == nil {
 		return nil, dtlserrors.ErrInvalidInternalState
 	}
 	if state13.TrafficKeys == nil {
@@ -1473,9 +1467,6 @@ func (c *Conn) handshakeRecordLayout(outbound *dtlsflight.Outbound) (handshakeRe
 	layout.capabilities, err = generation.Capabilities(common.CipherSuite)
 	if err != nil {
 		return layout, err
-	}
-	if !layout.capabilities.SupportsVersion(protocol.Version1_3) {
-		return layout, cryptosuite.ErrInvalidCapabilities
 	}
 	layout.limit, layout.padded = maxDTLS13InnerPlaintextLen, true
 	header := c.unifiedRecordHeader(outbound.Epoch, 0)
@@ -1754,7 +1745,7 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 	common := dtlsstate.CommonState(c.state)
 	localCID := common.LocalConnectionIDForInboundRecords()
 	cidLength := len(localCID)
-	if state, ok := c.state.(*dtlsstate.State13); ok && state.CID.Negotiated {
+	if state := c.state; state != nil && state.CID.Negotiated {
 		cidLength = state.CID.Receive.Length
 	}
 	config := recordlayer.UnpackDatagramConfig{CIDLength: cidLength, CIDRequired: c.inboundCIDRequired()}
@@ -1783,14 +1774,14 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 }
 
 func (c *Conn) inboundCIDRequired() bool {
-	state13, ok := c.state.(*dtlsstate.State13)
+	state13 := c.state
 	// because early records precede CID negotiation. but per-record CID validation still
 	// applies to handshake and application epochs in unmarshalCiphertextRecord.
-	if ok && state13.EarlyDataStatus == dtlsstate.EarlyDataAccepted && !c.isHandshakeCompletedSuccessfully() {
+	if state13 != nil && state13.EarlyDataStatus == dtlsstate.EarlyDataAccepted && !c.isHandshakeCompletedSuccessfully() {
 		return false
 	}
 
-	return ok && state13.CID.Negotiated && state13.CID.Receive.Expected
+	return state13 != nil && state13.CID.Negotiated && state13.CID.Receive.Expected
 }
 
 func recordsContainDTLS13CID(records [][]byte) bool {
@@ -1862,8 +1853,8 @@ func (c *Conn) allowsMissingCiphertextCID(record recordlayer.ParsedRecord, datag
 }
 
 func (c *Conn) ciphertextCIDPolicy(localCID []byte) (expected, allowed bool, err error) {
-	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok || !state13.CID.Negotiated {
+	state13 := c.state
+	if state13 == nil || !state13.CID.Negotiated {
 		return false, len(localCID) > 0, nil
 	}
 	if state13.CID.Receive.Length != len(localCID) {
@@ -1879,8 +1870,8 @@ type openedRecord struct {
 }
 
 func (c *Conn) openCiphertextRecord(record recordlayer.ParsedRecord) (openedRecord, uint64, uint64, error) {
-	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok {
+	state13 := c.state
+	if state13 == nil {
 		return openedRecord{}, 0, 0, dtlserrors.ErrInvalidInternalState
 	}
 	if state13.TrafficKeys == nil {
@@ -2122,8 +2113,8 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 }
 
 func (c *Conn) pruneReplayEpochs() {
-	state, ok := c.state.(*dtlsstate.State13)
-	if !ok || state.TrafficKeys == nil {
+	state := c.state
+	if state == nil || state.TrafficKeys == nil {
 		return
 	}
 	state.RetainTrafficCounters(state.TrafficKeys)
@@ -2138,7 +2129,7 @@ func (c *Conn) pruneReplayEpochs() {
 }
 
 func (c *Conn) passesReplayCutoff(epoch, sequenceNumber uint64) bool {
-	if state, ok := c.state.(*dtlsstate.State13); ok {
+	if state := c.state; state != nil {
 		if cutoff, restored := state.ReplayCutoff[epoch]; restored && sequenceNumber <= cutoff {
 			return false
 		}
@@ -2162,8 +2153,8 @@ func (c *Conn) queueIfCipherSuiteUninitialized(rAddr net.Addr, buf []byte, buffe
 
 func (c *Conn) hasInboundRecordProtection() bool {
 	common := dtlsstate.CommonState(c.state)
-	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok || state13.TrafficKeys == nil {
+	state13 := c.state
+	if state13 == nil || state13.TrafficKeys == nil {
 		return false
 	}
 	generation, found := state13.TrafficKeys.Read(max(common.RemoteEpoch(), dtlsflight13.EpochEarlyData))
@@ -2718,15 +2709,10 @@ func (c *Conn) runHandshakeReader(ctxRead context.Context, firstErr chan<- error
 }
 
 func (c *Conn) setupHandshakeFSM(start handshakeStart) error {
-	state13, err := dtlsstate.As13(c.state)
-	if err != nil {
-		return err
+	if c.state == nil {
+		return dtlserrors.ErrInvalidProtocolVersionState
 	}
-	fsm, err := dtlshandshake.NewFSM13(state13, c.handshakeCache, c.handshakeConfig, start.flight, c.handshakeEstablished)
-	if err != nil {
-		return err
-	}
-	c.fsm = fsm
+	c.fsm = dtlshandshake.NewFSM13(c.state, c.handshakeCache, c.handshakeConfig, start.flight, c.handshakeEstablished)
 
 	return nil
 }
@@ -2799,8 +2785,8 @@ func (c *Conn) commitLocalKeyUpdate(generation *dtlsstate.TrafficGeneration) err
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok || state13.TrafficKeys == nil {
+	state13 := c.state
+	if state13 == nil || state13.TrafficKeys == nil {
 		return dtlserrors.ErrInvalidProtocolVersionState
 	}
 	current, _ := state13.TrafficKeys.CurrentWrite()
@@ -2883,8 +2869,8 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *Conn) acceptEarlyApplicationData(epoch, size uint64) (bool, error) {
-	state, ok := c.state.(*dtlsstate.State13)
-	if !ok || epoch != dtlsflight13.EpochEarlyData {
+	state := c.state
+	if state == nil || epoch != dtlsflight13.EpochEarlyData {
 		return true, nil
 	}
 	if state.EarlyDataStatus != dtlsstate.EarlyDataAccepted || c.detached == nil {

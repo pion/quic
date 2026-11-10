@@ -61,7 +61,6 @@ var (
 	ErrNoConfigProvided                  = stderrors.New("no config provided")
 	ErrNoSupportedEllipticCurves         = stderrors.New("client requested zero or more elliptic curves that are not supported by the server")
 	ErrUnsupportedProtocolVersion        = stderrors.New("unsupported protocol version")
-	ErrNoCommonProtocolVersion           = stderrors.New("no common DTLS version between peer and local")
 	ErrInvalidProtocolVersionState       = stderrors.New("invalid protocol version in state")
 	ErrInvalidServerHello                = stderrors.New("invalid ServerHello")
 	ErrUnexpectedSecondHelloRetryRequest = stderrors.New("server sent a second HelloRetryRequest")

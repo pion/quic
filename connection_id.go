@@ -15,7 +15,6 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
-	dtlshandshake "github.com/pion/dtls/v4/internal/handshake"
 	idtlsnet "github.com/pion/dtls/v4/internal/net"
 	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
@@ -256,7 +255,7 @@ func (c *Conn) registerLocalCID() error {
 	}
 	cid := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
 	var ids *dtlsstate.CIDReceiveSet
-	if state, ok := c.state.(*dtlsstate.State13); ok {
+	if state := c.state; state != nil {
 		ids = state.CID.Receive.IDs
 	}
 	if bytes.Equal(cid, c.registeredLocalCID) && ids == c.registeredReceiveCIDs {
@@ -277,7 +276,7 @@ func (c *Conn) registerLocalCID() error {
 // acceptsInboundCID checks the negotiated receive CID set, or the offered
 // CID before negotiation completes.
 func (c *Conn) acceptsInboundCID(cid []byte) bool {
-	if state, ok := c.state.(*dtlsstate.State13); ok && state.CID.Negotiated {
+	if state := c.state; state != nil && state.CID.Negotiated {
 		return state.CID.Receive.IDs.Contains(cid)
 	}
 
@@ -292,8 +291,8 @@ func (c *Conn) reserveLocalCIDs(cids [][]byte) ([][]byte, error) {
 		return nil, ErrConnClosed
 	}
 
-	state, ok := c.state.(*dtlsstate.State13)
-	if !ok || !state.CID.Negotiated || !state.CID.Receive.CanSendNewConnectionID {
+	state := c.state
+	if state == nil || !state.CID.Negotiated || !state.CID.Receive.CanSendNewConnectionID {
 		return nil, dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 	receive := &state.CID.Receive
@@ -352,8 +351,8 @@ func (c handshakeConn) CommitPeerConnectionIDs(message *handshake.MessageNewConn
 	if c.conn.isConnectionClosed() {
 		return ErrConnClosed
 	}
-	state, ok := c.conn.state.(*dtlsstate.State13)
-	if !ok {
+	state := c.conn.state
+	if state == nil {
 		return dtlserrors.ErrInvalidProtocolVersionState
 	}
 	send := &state.CID.Send
@@ -387,7 +386,7 @@ func (c handshakeConn) CommitPeerConnectionIDs(message *handshake.MessageNewConn
 func (c *Conn) clearConnectionIDs() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	if state, ok := c.state.(*dtlsstate.State13); ok {
+	if state := c.state; state != nil {
 		state.CID.Receive.IDs.Clear()
 		state.CID.Send.Spares = nil
 		clear(c.pendingCIDACKs)
@@ -398,8 +397,8 @@ func (c *Conn) clearConnectionIDs() {
 func (c *Conn) removeLocalCIDs(cids [][]byte) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	state, ok := c.state.(*dtlsstate.State13)
-	if !ok || state.CID.Receive.IDs == nil {
+	state := c.state
+	if state == nil || state.CID.Receive.IDs == nil {
 		return
 	}
 	for _, cid := range cids {
@@ -537,9 +536,9 @@ func (c *Conn) AddPath(socket net.PacketConn) (*Path, error) {
 
 // canMigratePath is called with c.lock held.
 func (c *Conn) canMigratePath() bool {
-	state, ok := c.state.(*dtlsstate.State13)
+	state := c.state
 
-	return ok && state.CID.Send.UseCID &&
+	return state != nil && state.CID.Send.UseCID &&
 		(c.cidPathMigrationPolicy == CIDPathMigrationUnsafe || state.RRCNegotiated)
 }
 
@@ -627,8 +626,8 @@ func (p *Path) obtainCID(ctx context.Context) error {
 	if p.takeCID() {
 		return nil
 	}
-	updater, ok := p.transport.conn.fsm.(dtlshandshake.ConnectionIDUpdater)
-	if !ok {
+	updater := p.transport.conn.fsm
+	if updater == nil {
 		return dtlserrors.ErrInvalidInternalState
 	}
 	if err := updater.RequestConnectionIDs(ctx, 1); err != nil {
@@ -648,8 +647,8 @@ func (p *Path) takeCID() bool {
 	if len(p.cid) != 0 {
 		return true
 	}
-	state, ok := conn.state.(*dtlsstate.State13)
-	if !ok || conn.isConnectionClosed() {
+	state := conn.state
+	if state == nil || conn.isConnectionClosed() {
 		return false
 	}
 	p.transport.usedCIDs[string(state.CID.Send.Active)] = true
@@ -724,8 +723,8 @@ func (p *Path) Switch() error {
 	if p.transport.active == p.pathSocket {
 		return nil
 	}
-	state, ok := conn.state.(*dtlsstate.State13)
-	if !ok || !state.CID.Send.UseCID {
+	state := conn.state
+	if state == nil || !state.CID.Send.UseCID {
 		return errPathMigrationUnavailable
 	}
 	p.transport.active.cid = bytes.Clone(state.CID.Send.Active)
@@ -904,8 +903,8 @@ func (c returnRoutabilityConn) prepareRecord(message *protocol.ReturnRoutability
 	if len(path.cid) == 0 {
 		return nil, errNoConnectionID
 	}
-	state, ok := c.conn.state.(*dtlsstate.State13)
-	if !ok || !state.CID.Send.UseCID {
+	state := c.conn.state
+	if state == nil || !state.CID.Send.UseCID {
 		return nil, errPathMigrationUnavailable
 	}
 	if message.MessageType == protocol.ReturnRoutabilityCheckPathResponse {

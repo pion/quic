@@ -65,8 +65,6 @@ func processClientHelloSecurityExtension(state *dtlsstate.State13, seen *clientH
 	case *extension.SignatureAlgorithms:
 		seen.hasSignatureAlgorithms = true
 		state.RemoteSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)
-	case *extension13.OfferedVersions:
-		state.RemoteVersions = slices.Clone(ext.Versions)
 	case *extension13.OfferedPSKs:
 		seen.hasPreSharedKey = true
 	}

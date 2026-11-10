@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
-	"github.com/pion/dtls/v4/internal/protocol"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
 )
@@ -45,7 +44,7 @@ func (s Session) ticketPSK(serverName string, now time.Time) *dtlsstate.PSK {
 		return nil
 	}
 	suite := ciphersuite.ForID(ticket.CipherSuite)
-	if suite == nil || !suite.Capabilities().SupportsVersion(protocol.Version1_3) || len(s.Secret) != suite.HashFunc()().Size() {
+	if suite == nil || len(s.Secret) != suite.HashFunc()().Size() {
 		return nil
 	}
 	hashID := crypto.SHA256

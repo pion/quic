@@ -130,19 +130,15 @@ type serializedState struct {
 	NegotiatedProtocol    string
 }
 
-func generateState(active dtlsstate.Active) (*State, error) {
-	if active == nil || active.CommonFields() == nil {
+func generateState(internalState *dtlsstate.State13) (*State, error) {
+	if internalState == nil || internalState.Common == nil {
 		return nil, dtlserrors.ErrInvalidProtocolVersionState
 	}
-	common := active.CommonFields()
+	common := internalState.Common
 	if common.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
 	state := snapshotCommonState(common)
-	internalState, ok := active.(*dtlsstate.State13)
-	if !ok {
-		return nil, dtlserrors.ErrInvalidProtocolVersionState
-	}
 	state.version = protocol.Version1_3
 	state.KeyUsage = keyUsageStats(internalState)
 	state.exporterMasterSecret = bytes.Clone(internalState.KeySchedule.ExporterMasterSecret)
@@ -302,7 +298,7 @@ func (s *State) cipherSuite() (cryptosuite.Suite, error) {
 
 // generateInternalState is the inverse of generateState: it expands the public
 // State into the internal state used by the connection internals.
-func (s *State) generateInternalState() (dtlsstate.Active, error) {
+func (s *State) generateInternalState() (*dtlsstate.State13, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -321,7 +317,7 @@ func (s *State) generateInternalState() (dtlsstate.Active, error) {
 func (s *State) restoreCommonState(suite cryptosuite.Suite) *dtlsstate.Common {
 	common := &dtlsstate.Common{
 		LocalRandom: s.localRandom, RemoteRandom: s.remoteRandom,
-		CipherSuite: suite, IsClient: s.isClient, LocalVersion: protocol.Version1_3,
+		CipherSuite: suite, IsClient: s.isClient,
 		PeerCertificates: dtlsutil.CloneByteSlices(s.PeerCertificates),
 		IdentityHint:     bytes.Clone(s.IdentityHint), SessionID: bytes.Clone(s.SessionID),
 		NegotiatedProtocol: s.NegotiatedProtocol, RRCNegotiated: s.rrcNegotiated,
@@ -402,9 +398,6 @@ func (s *State) validate13(suite cryptosuite.Suite) error {
 	snapshot := s.state13
 	if snapshot == nil || len(snapshot.Write) == 0 || len(snapshot.Read) == 0 {
 		return dtlserrors.ErrHandshakeInProgress
-	}
-	if !suite.Capabilities().SupportsVersion(protocol.Version1_3) {
-		return dtlserrors.ErrInvalidCipherSuite
 	}
 	secretSize := suite.HashFunc()().Size()
 	if len(s.exporterMasterSecret) != secretSize || !snapshot.validKeySchedule(secretSize) {

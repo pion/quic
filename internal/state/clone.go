@@ -8,7 +8,6 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/pion/dtls/v4/internal/protocol"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/internal/util"
 )
@@ -18,7 +17,6 @@ import (
 func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 {
 	common := &Common{
 		PeerCertificates: util.CloneByteSlices(peerCertificates),
-		LocalVersion:     protocol.Version1_3,
 	}
 	if state == nil || state.Common == nil {
 		return &State13{Common: common}
@@ -45,10 +43,6 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	common.ServerName = state.ServerName
 	common.ECHAccepted = state.ECHAccepted
 	common.PeerSupportedProtocols = slices.Clone(state.PeerSupportedProtocols)
-	common.RemoteVersions = slices.Clone(state.RemoteVersions)
-	if state.LocalVersion != 0 {
-		common.LocalVersion = state.LocalVersion
-	}
 	common.SetLocalEpoch(state.LocalEpoch())
 	common.SetRemoteEpoch(state.RemoteEpoch())
 	common.SetSRTPProtectionProfile(state.SRTPProtectionProfile())

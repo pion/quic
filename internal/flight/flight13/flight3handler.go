@@ -131,8 +131,7 @@ func processFlight3ServerHelloOffer(flightCtx *handshakeContext, pull serverHell
 }
 
 func processFlight3ServerHello(flightCtx *handshakeContext, serverHello *handshake.MessageServerHello) *flightParseFailure {
-	versions, failure := validateFlight3ServerHello(serverHello)
-	if failure != nil {
+	if failure := validateFlight3ServerHello(serverHello); failure != nil {
 		return failure
 	}
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
@@ -145,8 +144,6 @@ func processFlight3ServerHello(flightCtx *handshakeContext, serverHello *handsha
 		}
 	}
 	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
-	flightCtx.state.RemoteVersions = versions
-	flightCtx.state.LocalVersion = protocol.Version1_3
 
 	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(serverHello, flightCtx.cfg)
 	if err != nil {
@@ -169,27 +166,27 @@ func processFlight3ServerHello(flightCtx *handshakeContext, serverHello *handsha
 	return nil
 }
 
-func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]protocol.Version, *flightParseFailure) {
+func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) *flightParseFailure {
 	if IsHelloRetryRequest(serverHello) {
-		return nil, newFlightParseFailure(
+		return newFlightParseFailure(
 			alert.UnexpectedMessage,
 			dtlserrors.ErrUnexpectedSecondHelloRetryRequest,
 		)
 	}
 
 	if serverHello.Version != protocol.Version1_2 {
-		return nil, newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
+		return newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
 	}
 
 	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(serverHello.Extensions)
 	if err != nil {
-		return nil, newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
 	}
 	if !seenSupportedVersions || versions[0] != protocol.Version1_3 {
-		return nil, newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
+		return newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
 	}
 
-	return versions, nil
+	return nil
 }
 
 func applyFlight3ServerKeyShare(flightCtx *handshakeContext, serverShare *extension13.KeyShareEntry) *flightParseFailure {
@@ -308,10 +305,6 @@ func flight3Generate(
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
-	if !slices.Contains(flightCtx.state.RemoteVersions, protocol.Version1_3) {
-		return nil, nil, dtlserrors.ErrNoCommonProtocolVersion
-	}
-
 	request := flightCtx.state.HelloRetryRequest
 	var freshShare *extension13.KeyShareEntry
 	if request.HasSelectedGroup {

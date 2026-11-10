@@ -425,9 +425,7 @@ func TestReadAndProcessDatagramQueuesExactRecordCopy(t *testing.T) {
 		handshakeCache:       dtlsflight.NewCache(),
 		readBufferPool:       readBufferPoolForSize(defaultReceiveBufferSize),
 		log:                  logging.NewDefaultLoggerFactory().NewLogger("dtls"),
-		state: &dtlsstate.State13{Common: &dtlsstate.Common{
-			LocalVersion: protocol.Version1_3,
-		}},
+		state:                &dtlsstate.State13{Common: &dtlsstate.Common{}},
 	}
 	rawPacket, err := recordlayer.MarshalCiphertext(recordlayer.CiphertextConfig{EpochLow: uint8(dtlsflight13.EpochHandshake), SequenceNumber: 1, TwoByteSequence: true, LengthPresent: true}, bytes.Repeat([]byte{0xa5}, 16))
 	require.NoError(t, err)
@@ -448,7 +446,7 @@ func TestReadAndProcessDatagramQueuesExactRecordCopy(t *testing.T) {
 }
 
 func TestHandleIncomingPacket13RejectsFixedHandshakeEpoch(t *testing.T) {
-	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
+	commonState := &dtlsstate.Common{IsClient: true}
 	conn := &Conn{
 		fragmentBuffer:         dtlsfragmentbuffer.New(),
 		handshakeCache:         dtlsflight.NewCache(),
@@ -595,8 +593,8 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 		require.FailNow(t, "server did not write an application-epoch ACK")
 	}
 	ciphertext := unmarshalCiphertextRecordForTest(t, rawACK, 0)
-	clientState, ok := client.state.(*dtlsstate.State13)
-	require.True(t, ok)
+	clientState := client.state
+	require.NotNil(t, clientState)
 	readGeneration, ok := clientState.TrafficKeys.Read(dtlsflight13.EpochApplication)
 	require.True(t, ok)
 	protection := &testRecordProtection13{TrafficProtection: readGeneration.Protection, capabilities: clientState.CipherSuite.Capabilities()}
@@ -714,8 +712,8 @@ func TestProcessProtectedHandshakePacketFiltersACKedFragments(t *testing.T) {
 	conn, _ := newTestConnWithWriteProtection(t)
 	conn.maximumTransmissionUnit = 80
 	conn.paddingLengthGenerator = func(uint) uint { return 13 }
-	state, ok := conn.state.(*dtlsstate.State13)
-	require.True(t, ok)
+	state := conn.state
+	require.NotNil(t, state)
 	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local"), ServerCID: []byte("peer")})
 	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake13.MessageCertificate{CertificateList: []handshake13.CertificateEntry{{CertificateData: bytes.Repeat([]byte{0xaa}, 240)}}}}
 	_, err := dtlsHandshake.Marshal()
@@ -849,8 +847,8 @@ func TestOpenCiphertextRecordRejectsInvalidRecords(t *testing.T) {
 
 func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
-	state13, err := dtlsstate.As13(conn.state)
-	require.NoError(t, err)
+	state13 := conn.state
+	require.NotNil(t, state13)
 	state13.HandshakeRecvSequence = 1
 	expectedPlaintext := encryptedExtensionsHandshakeWithSequence(t, 1)
 	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, expectedPlaintext)
@@ -1014,9 +1012,8 @@ func newTestConnWithWriteProtection(t *testing.T) (*Conn, *testRecordProtection1
 	assert.NoError(t, err)
 
 	commonState := &dtlsstate.Common{
-		IsClient:     true,
-		LocalVersion: protocol.Version1_3,
-		CipherSuite:  localCipherSuite,
+		IsClient:    true,
+		CipherSuite: localCipherSuite,
 	}
 	state13 := &dtlsstate.State13{Common: commonState, TrafficKeys: &dtlsstate.TrafficKeyState{}}
 	state13.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochHandshake, Secret: clientSecret, Protection: localWriteProtection}, &dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochHandshake, Secret: serverSecret, Protection: localReadProtection})
@@ -1041,9 +1038,8 @@ func newTestConnWithReadProtection(t *testing.T) (*Conn, *testRecordProtection13
 	assert.NoError(t, err)
 
 	commonState := &dtlsstate.Common{
-		IsClient:     true,
-		LocalVersion: protocol.Version1_3,
-		CipherSuite:  localCipherSuite,
+		IsClient:    true,
+		CipherSuite: localCipherSuite,
 	}
 	state13 := &dtlsstate.State13{Common: commonState, TrafficKeys: &dtlsstate.TrafficKeyState{}}
 	state13.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochHandshake, Secret: clientSecret, Protection: localWriteProtection}, &dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochHandshake, Secret: serverSecret, Protection: localReadProtection})
@@ -1230,8 +1226,8 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 
 func TestCiphertextConnectionIDDoesNotMigrateWithoutRRC(t *testing.T) {
 	conn, peerProtection := newTestConnWithReadProtection(t)
-	state, ok := conn.state.(*dtlsstate.State13)
-	require.True(t, ok)
+	state := conn.state
+	require.NotNil(t, state)
 	localCID := []byte("local-cid")
 	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
 		ClientCID: localCID,
@@ -1282,8 +1278,8 @@ func testLatestCIDControlRecordStartsRRC(
 	t.Helper()
 	conn, peerProtection := newTestConnWithReadProtection(t)
 	conn.cidPathMigrationPolicy = CIDPathMigrationRRC
-	state, ok := conn.state.(*dtlsstate.State13)
-	require.True(t, ok)
+	state := conn.state
+	require.NotNil(t, state)
 	localCID := []byte("local-cid")
 	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: localCID, ServerCID: []byte("remote-cid"), ReturnRoutabilityCheck: true})
 	conn.setLocalEpoch(dtlsflight13.EpochApplication)
@@ -1523,7 +1519,7 @@ func newTrafficKeyTestConn(t *testing.T) (*Conn, *dtlsstate.State13, cryptosuite
 	t.Helper()
 
 	suite := trafficSuiteForTest(t)
-	state := &dtlsstate.State13{Common: &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3, CipherSuite: suite}, TrafficKeys: &dtlsstate.TrafficKeyState{}}
+	state := &dtlsstate.State13{Common: &dtlsstate.Common{IsClient: true, CipherSuite: suite}, TrafficKeys: &dtlsstate.TrafficKeyState{}}
 
 	return &Conn{state: state}, state, suite
 }
@@ -1580,8 +1576,8 @@ func assertTrafficKeyTestRecord(
 func TestDetachedConnWritesRRCAsAddressedEvent(t *testing.T) {
 	conn, _ := newTestConnWithReadProtection(t)
 	conn.cidPathMigrationPolicy = CIDPathMigrationRRC
-	state, ok := conn.state.(*dtlsstate.State13)
-	require.True(t, ok)
+	state := conn.state
+	require.NotNil(t, state)
 	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
 		ClientCID:              []byte("local-cid"),
 		ServerCID:              []byte("remote-cid"),
@@ -1813,8 +1809,8 @@ func TestConnectionStateDuringHandshake(t *testing.T) {
 
 func TestReplayMarkerUsesReceivedEpoch(t *testing.T) {
 	conn, _ := newTestConnWithReadProtection(t)
-	state, ok := conn.state.(*dtlsstate.State13)
-	require.True(t, ok)
+	state := conn.state
+	require.NotNil(t, state)
 	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{Epoch: 4})
 	common := dtlsstate.CommonState(conn.state)
 	common.UpdateRemoteSequenceNumber(3, 10)
@@ -1923,8 +1919,8 @@ func TestIndependentKeyUpdateEpochs(t *testing.T) {
 		require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
 	}
 	for _, connection := range []*Conn{client, server} {
-		state, ok := connection.state.(*dtlsstate.State13)
-		require.True(t, ok)
+		state := connection.state
+		require.NotNil(t, state)
 		write, read := state.TrafficKeys.Generations()
 		assert.LessOrEqual(t, len(write), 1)
 		assert.LessOrEqual(t, len(read), 4)
@@ -2427,8 +2423,8 @@ func TestDTLS13HandshakeEpochValidation(t *testing.T) {
 func TestDTLS13FutureHelloDoesNotConsumeProtectedSequence(t *testing.T) {
 	for _, typ := range []handshake.Type{handshake.TypeClientHello, handshake.TypeServerHello} {
 		conn, _ := newTestConnWithReadProtection(t)
-		state, err := dtlsstate.As13(conn.state)
-		require.NoError(t, err)
+		state := conn.state
+		require.NotNil(t, state)
 		state.IsClient, state.HandshakeRecvSequence = typ == handshake.TypeServerHello, 1
 		conn.setRemoteEpoch(0)
 		for _, length := range []uint32{1, 2} {
@@ -2521,8 +2517,8 @@ func TestHandshakeRetransmissionCIDGrowth(t *testing.T) {
 	conn, peer := newTestConnWithWriteProtection(t)
 	conn.maximumTransmissionUnit = 80
 	conn.paddingLengthGenerator = func(uint) uint { return 3 }
-	state, ok := conn.state.(*dtlsstate.State13)
-	require.True(t, ok)
+	state := conn.state
+	require.NotNil(t, state)
 	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local"), ServerCID: []byte("peer")})
 	conn.closed = closer.NewCloser()
 	adapter := handshakeConn{conn: conn}

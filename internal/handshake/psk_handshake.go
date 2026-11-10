@@ -18,7 +18,6 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	"github.com/pion/dtls/v4/internal/negotiation"
-	"github.com/pion/dtls/v4/internal/protocol"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 	"github.com/pion/dtls/v4/internal/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/internal/protocol/extension/dtls13"
@@ -196,7 +195,7 @@ func clientPSKs(cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientH
 
 func usableClientTicket(cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, psk *dtlsstate.PSK) bool {
 	if !slices.ContainsFunc(cfg.LocalCipherSuites, func(suite dtlsconfig.CipherSuite) bool {
-		return suite.Capabilities().SupportsVersion(protocol.Version1_3) && slices.Contains(hello.CipherSuiteIDs, uint16(suite.ID())) && suite.HashFunc()().Size() == psk.Hash.Size()
+		return slices.Contains(hello.CipherSuiteIDs, uint16(suite.ID())) && suite.HashFunc()().Size() == psk.Hash.Size()
 	}) || (len(psk.PeerCertificates) == 0 && cfg.GetPSKs == nil) {
 		return false
 	}
@@ -398,7 +397,7 @@ func (c *handshakeContext) pskCipherSuite(hello *handshake.MessageClientHello, h
 	}
 	for _, id := range hello.CipherSuiteIDs {
 		suite, ok := dtlsflight.FindCipherSuiteByID(id, c.cfg.LocalCipherSuites)
-		if ok && suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.HashFunc()().Size() == hashID.Size() {
+		if ok && suite.HashFunc()().Size() == hashID.Size() {
 			return suite
 		}
 	}

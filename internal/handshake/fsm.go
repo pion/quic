@@ -9,41 +9,8 @@ import (
 	"time"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
-	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/protocol/alert"
 )
-
-type fsmStateHandler func(context.Context, Conn) (State, error)
-
-// runHandshakeFSM drives the shared preparing/sending/waiting/finished loop.
-func runHandshakeFSM(ctx context.Context, conn Conn, initialState State, closed chan struct{}, establishment *Establishment, trace func(State), prepare, send, wait, finish fsmStateHandler) error {
-	state := initialState
-	defer close(closed)
-
-	for {
-		trace(state)
-		if state == StateFinished {
-			establishment.mark()
-		}
-
-		var err error
-		switch state {
-		case StatePreparing:
-			state, err = prepare(ctx, conn)
-		case StateSending:
-			state, err = send(ctx, conn)
-		case StateWaiting:
-			state, err = wait(ctx, conn)
-		case StateFinished:
-			state, err = finish(ctx, conn)
-		default:
-			return dtlserrors.ErrInvalidFSMTransition
-		}
-		if err != nil {
-			return err
-		}
-	}
-}
 
 // notifyAlert sends a DTLS alert if present and prefers the original error.
 func notifyAlert(ctx context.Context, conn Conn, dtlsAlert *alert.Alert, err error) error {
